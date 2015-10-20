@@ -9,6 +9,8 @@
 #include "tcp_conn.h"
 #include "netdefs.h"
 
+#define SNAPLEN 240 /*We only really need the headers...*/
+
 using namespace std;
 
 static unordered_map<string, tcp_conn> connections;
@@ -31,40 +33,39 @@ int main(int argc, char **argv) {
 
     stringstream ss; //use this guy to build strings.
 
+    if(argc<3) {
+        return -1;
+    }
+
     //change this for setopt once this works.
-    if(argc>1) {
-        duration = atoi(argv[1]);
-    }
+    duration = atoi(argv[1]);
 
-    if(argc>2) {
-        iface.assign(argv[2]);
-    }
-
-    dev = pcap_lookupdev(errbuf);
-    if (dev == NULL) {
-        cout << "pcap_lookupdev() failed: " << errbuf << endl;
-        return 1;
-    }
+    iface.assign(argv[2]);
 
     /* Find the properties for the device */
-    if (pcap_lookupnet(dev, &net, &mask, errbuf) == -1) {
+    if (pcap_lookupnet(iface.c_str(), &net, &mask, errbuf) == -1) {
         fprintf(stderr, "Couldn't get netmask for device %s: %s\n", dev, errbuf);
         net = 0;
         mask = 0;
     }
 
-    handle = pcap_open_live(dev, BUFSIZ, 0, -1, errbuf);
+    cout << "Net: " << net << " Mask: " << mask << endl;
+
+    handle = pcap_open_live(iface.c_str(), SNAPLEN, 0, 1000, errbuf);
     if (handle == NULL) {
         cout << "pcap_open_live() failed: " << errbuf << endl;
         return 1;
     }
     if(net) {
         char * ip_c = (char *)&net;
-        ss << "dst host " << (char)ip_c[0];
-        ss << "." << (char)ip_c[1];
-        ss << "." << (char)ip_c[2];
-        ss << "." << (char)ip_c[3];
-        ss << " " << "and tcp";
+#if 0
+        ss << "dst host " << +ip_c[0]
+            << "." << +ip_c[1]
+            << "." << +ip_c[2]
+            << "." << +ip_c[3]
+            << " " << "and tcp";
+#endif
+        ss << "tcp";
     } else {
         ss << "tcp";
     }
@@ -72,6 +73,8 @@ int main(int argc, char **argv) {
     string filter(ss.str());
     filter_exp = new char[filter.length() + 1];
     strcpy(filter_exp, filter.c_str());
+
+    cout << "Setting filter expression: " + filter;
 
     /* Compile and apply the filter */
     if (pcap_compile(handle, &fp, filter_exp, 0, net) == -1) {
@@ -87,7 +90,14 @@ int main(int argc, char **argv) {
     do {
         end = clock();
         /* Grab a packet */
-        packet = pcap_next(handle, &header);
+        if(!(packet = pcap_next(handle, &header))) {
+            continue;
+        }
+
+        cout << "got packet!" << endl;
+
+        ss.str("");
+        ss.clear();
 
         /* let's look at the tcp portion, all our packets will be TCP due to filter*/
         struct sniff_ethernet * ether_hdr = (struct sniff_ethernet *) packet;
@@ -100,6 +110,7 @@ int main(int argc, char **argv) {
         }
         struct sniff_tcp * tcp_hdr = (struct sniff_tcp *)(packet + SIZE_ETHERNET + size_ip);
         if ( TH_OFF(tcp_hdr)*4 <= TCP_MIN_LEN) {
+            cerr << "packet doesn't contain ops: " << TH_OFF(tcp_hdr)*4 << "bytes" << endl;
             continue;
         }
 
@@ -109,14 +120,18 @@ int main(int argc, char **argv) {
         while(!found && optoff < TH_OFF(tcp_hdr) * 4){
             buff = (char *)tcp_hdr + optoff;
 #define TSOPT_KIND 8
-            if(*buff == TSOPT_KIND) { //Do I have to change endianess here - debug it?
+#define NOP_KIND   1
+            if(buff[0] == TSOPT_KIND) { //Do I have to change endianess here - debug it?
                 found = true;
+            } else if(buff[0] == NOP_KIND){
+                optoff++;
             } else {
-                optoff += *(buff+1);
+                optoff += buff[1];
             }
         }
 
         if (found) {
+            cout << "Found timestamps options..." << endl;
             buff += optoff + 2;
             int ts = (int)(*buff);
             buff += 4;
@@ -157,7 +172,7 @@ int main(int argc, char **argv) {
             }
         }
 
-    } while((duration && (end-start>duration)) || !duration );
+    } while((duration && (end-start)<duration*1000) || !duration );
 
     cout << "capture finished" << endl;
 
