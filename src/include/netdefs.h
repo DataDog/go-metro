@@ -1,5 +1,9 @@
 #ifndef _NETDEFS_H
-#define NETDEFS_H
+#define _NETDEFS_H
+
+#include <ctype.h>
+#include <sys/types.h>
+#include <arpa/inet.h>  
 
 /* ethernet headers are always exactly 14 bytes [1] */
 #define SIZE_ETHERNET 14
