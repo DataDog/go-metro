@@ -187,6 +187,6 @@ func main() {
 	}
 
 	for k, flow := range flows {
-		log.Println("Flow %s RTT: %6.3f", k, flow.RTT)
+		log.Printf("Flow %s RTT:\t%6.3f", k, flow.RTT)
 	}
 }
