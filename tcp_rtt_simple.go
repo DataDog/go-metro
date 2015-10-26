@@ -21,6 +21,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"flag"
+	"fmt"
 	"log"
 	"net"
 	"strconv"
@@ -34,6 +35,7 @@ var iface = flag.String("i", "en0", "Interface to get packets from")
 var snaplen = flag.Int("s", 65536, "SnapLen for pcap packet capture")
 var filter = flag.String("f", "tcp", "BPF filter for pcap")
 var logAllPackets = flag.Bool("v", false, "Log whenever we see a packet")
+var getMinRTT = flag.Bool("m", false, "Return the minimum RTT we have for a given connection.")
 var packetCount = flag.Int("c", -1, `
 Quit after processing this many packets, flushing all currently buffered
 connections.  If negative, this is infinite`)
@@ -44,10 +46,12 @@ type TCPRTT struct {
 	Dst, Src     net.IP
 	Dport, Sport layers.TCPPort
 
-	RTT       float64
+	SRTT      uint64
 	TS, TSecr uint32
 	Seen      map[uint32]bool
 	Seq       uint32
+	NextSeq   uint32
+	LastSz    uint32
 }
 
 // New creates a new stream.  It's called whenever the assembler sees a stream
@@ -59,9 +63,10 @@ func NewTCPRTT(src net.IP, dst net.IP, sport layers.TCPPort, dport layers.TCPPor
 		Src:   src,
 		Dport: dport,
 		Sport: sport,
-		RTT:   0.0,
+		SRTT:  0,
 		TS:    0,
 		TSecr: 0,
+		Seq:   0,
 		Seen:  make(map[uint32]bool),
 	}
 
@@ -78,6 +83,19 @@ func main() {
 
 	flag.Parse()
 
+	log.Printf("Will attempt sniffing off interface %q", *iface)
+	ifaces, err := pcap.FindAllDevs()
+	if err != nil {
+		log.Fatal("Error getting interface details: ", err)
+	}
+
+	var iface_details pcap.Interface
+	for i := range ifaces {
+		if ifaces[i].Name == *iface {
+			iface_details = ifaces[i]
+		}
+	}
+
 	log.Printf("starting capture on interface %q", *iface)
 	log.Printf("About to analyze %v packets", *packetCount)
 	// Set up pcap packet capture
@@ -85,6 +103,19 @@ func main() {
 	if err != nil {
 		log.Fatal("error opening pcap handle: ", err)
 	}
+
+	// lets sniff when we're the destination side to work over  TSECR
+	var ip_filter string
+	for i := range iface_details.Addresses {
+		if i < len(iface_details.Addresses)-1 {
+			ip_filter += fmt.Sprintf("dst host %s or ", iface_details.Addresses[i].IP)
+		} else {
+			ip_filter += fmt.Sprintf("dst host %s", iface_details.Addresses[i].IP)
+		}
+	}
+
+	*filter += " and " + " (" + ip_filter + ")"
+	log.Printf("Setting BPF filter: %s", *filter)
 	if err := handle.SetBPFFilter(*filter); err != nil {
 		log.Fatal("error setting BPF filter: ", err)
 	}
@@ -141,14 +172,16 @@ func main() {
 		// Find either the IPv4 or IPv6 address to use as our network
 		// layer.
 		foundNetLayer := false
+		foundIPv4Layer := false
 		for _, typ := range decoded {
 			switch typ {
 			case layers.LayerTypeIPv4:
 				foundNetLayer = true
+				foundIPv4Layer = true
 			case layers.LayerTypeIPv6:
 				foundNetLayer = true
 			case layers.LayerTypeTCP:
-				if foundNetLayer {
+				if foundNetLayer && foundIPv4Layer {
 					//do we have this flow? Build key
 					src := net.JoinHostPort(ip4.SrcIP.String(), strconv.Itoa(int(tcp.SrcPort)))
 					dst := net.JoinHostPort(ip4.DstIP.String(), strconv.Itoa(int(tcp.DstPort)))
@@ -159,26 +192,49 @@ func main() {
 					flows[src+"-"+dst] = found
 
 					//ignore duplicates and out of orders for now...
-					if found.Seen[tcp.Seq] == false || tcp.Seq < found.Seq {
+					if found.Seen[tcp.Seq] == false && tcp.Seq > found.Seq {
+						sample := true
+						tcp_payload_sz := uint32(ip4.Length) - uint32((ip4.IHL+tcp.DataOffset)*4)
+						if found.NextSeq != tcp.Seq || tcp_payload_sz == 0 || tcp.ACK == false {
+							//We only sample RTT off consecutive frames
+							sample = false
+						}
+
 						for i := range tcp.Options {
 							if tcp.Options[i].OptionType == 8 {
 								ts := read_uint32(tcp.Options[i].OptionData[:4])
 								tsecr := read_uint32(tcp.Options[i].OptionData[4:])
 								found.Seen[tcp.Seq] = true
-								if len(found.Seen) == 1 {
-									found.RTT = float64(ts - found.TS)
-								} else if len(found.Seen) > 1 {
-									found.RTT *= float64(len(found.Seen) - 2)
-									found.RTT += float64(ts - found.TS)
-									found.RTT /= float64((len(found.Seen) - 1))
+								if found.SRTT == 0 && sample {
+									if (tsecr - found.TSecr) < 1000 {
+										found.SRTT = uint64(tsecr-found.TSecr) << 3
+									}
+								} else if sample {
+									//Apply softening factor?
+									if (tsecr - found.TSecr) < 1000 {
+										rtt := uint64(tsecr - found.TSecr)
+										rtt -= (found.SRTT >> 3)
+										found.SRTT += rtt
+									}
+
+								}
+
+								if found.SRTT > 1000 {
+									log.Printf("Big gap in: %v - %v\nTCP TS:\t%v - %v\nLAST:\t%v - %v",
+										src, dst, tcp.Seq, tsecr, found.Seq, found.TSecr)
+								}
+
+								if found.SRTT == 0 {
+									found.SRTT = 1
 								}
 								found.TS = ts
 								found.TSecr = tsecr
-								found.Seq = tcp.Seq
-								found.Seen[tcp.Seq] = true
 								break
 							}
 						}
+						found.Seq = tcp.Seq
+						found.NextSeq = tcp.Seq + tcp_payload_sz
+						found.Seen[tcp.Seq] = true
 					}
 				}
 				break
@@ -187,6 +243,8 @@ func main() {
 	}
 
 	for k, flow := range flows {
-		log.Printf("Flow %s RTT:\t%6.3f", k, flow.RTT)
+		if len(flow.Seen) > 1 {
+			log.Printf("Flow %s\t w/ %d packets\tRTT:%d", k, len(flow.Seen), flow.SRTT)
+		}
 	}
 }
