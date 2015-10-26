@@ -25,6 +25,7 @@ import (
 	"log"
 	"net"
 	"strconv"
+	"time"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
@@ -49,6 +50,7 @@ type TCPRTT struct {
 	SRTT      uint64
 	TS, TSecr uint32
 	Seen      map[uint32]bool
+	Timed     map[uint32]int64
 	Seq       uint32
 	NextSeq   uint32
 	LastSz    uint32
@@ -68,6 +70,7 @@ func NewTCPRTT(src net.IP, dst net.IP, sport layers.TCPPort, dport layers.TCPPor
 		TSecr: 0,
 		Seq:   0,
 		Seen:  make(map[uint32]bool),
+		Timed: make(map[uint32]int64),
 	}
 
 	return t
@@ -105,13 +108,15 @@ func main() {
 	}
 
 	// lets sniff when we're the destination side to work over  TSECR
+	host_ips := make(map[string]bool)
 	var ip_filter string
 	for i := range iface_details.Addresses {
 		if i < len(iface_details.Addresses)-1 {
-			ip_filter += fmt.Sprintf("dst host %s or ", iface_details.Addresses[i].IP)
+			ip_filter += fmt.Sprintf("host %s or ", iface_details.Addresses[i].IP)
 		} else {
-			ip_filter += fmt.Sprintf("dst host %s", iface_details.Addresses[i].IP)
+			ip_filter += fmt.Sprintf("host %s", iface_details.Addresses[i].IP)
 		}
+		host_ips[iface_details.Addresses[i].IP.String()] = true
 	}
 
 	*filter += " and " + " (" + ip_filter + ")"
@@ -142,7 +147,6 @@ func main() {
 	var byteCount int64
 
 	flows := make(map[string]*TCPRTT)
-
 	for ; *packetCount != 0; *packetCount-- {
 		// To speed things up, we're also using the ZeroCopy method for
 		// reading packet data.  This method is faster than the normal
@@ -183,68 +187,57 @@ func main() {
 			case layers.LayerTypeTCP:
 				if foundNetLayer && foundIPv4Layer {
 					//do we have this flow? Build key
-					src := net.JoinHostPort(ip4.SrcIP.String(), strconv.Itoa(int(tcp.SrcPort)))
-					dst := net.JoinHostPort(ip4.DstIP.String(), strconv.Itoa(int(tcp.DstPort)))
+					var src, dst string
+					our_ip := host_ips[ip4.SrcIP.String()]
+					if our_ip == false {
+						src = net.JoinHostPort(ip4.SrcIP.String(), strconv.Itoa(int(tcp.SrcPort)))
+						dst = net.JoinHostPort(ip4.DstIP.String(), strconv.Itoa(int(tcp.DstPort)))
+					} else {
+						// We always consider ourselves the "destination" with respect to the key.
+						src = net.JoinHostPort(ip4.DstIP.String(), strconv.Itoa(int(tcp.DstPort)))
+						dst = net.JoinHostPort(ip4.SrcIP.String(), strconv.Itoa(int(tcp.SrcPort)))
+					}
+
 					found := flows[src+"-"+dst]
 					if found == nil {
-						found = NewTCPRTT(ip4.SrcIP, ip4.DstIP, tcp.SrcPort, tcp.DstPort)
+						if our_ip == false {
+							found = NewTCPRTT(ip4.SrcIP, ip4.DstIP, tcp.SrcPort, tcp.DstPort)
+						} else {
+							found = NewTCPRTT(ip4.DstIP, ip4.SrcIP, tcp.DstPort, tcp.SrcPort)
+						}
 					}
+
 					flows[src+"-"+dst] = found
 
-					//ignore duplicates and out of orders for now...
-					if found.Seen[tcp.Seq] == false && tcp.Seq > found.Seq {
-						sample := true
-						tcp_payload_sz := uint32(ip4.Length) - uint32((ip4.IHL+tcp.DataOffset)*4)
-						if found.NextSeq != tcp.Seq || tcp_payload_sz == 0 || tcp.ACK == false {
-							//We only sample RTT off consecutive frames
-							sample = false
+					//tcp_payload_sz := uint32(ip4.Length) - uint32((ip4.IHL+tcp.DataOffset)*4)
+					if our_ip {
+						//do we have to add an entry?
+						if found.Timed[tcp.Seq] == 0 {
+							found.Timed[tcp.Seq] = time.Now().UnixNano()
 						}
+					} else if found.Timed[tcp.Ack] != 0 {
+						if found.Seen[tcp.Ack] == false && tcp.ACK {
+							//we can't receive an ACK for packet we haven't seen sent - we're the source
+							rtt := uint64(time.Now().UnixNano() - found.Timed[tcp.Ack])
 
-						for i := range tcp.Options {
-							if tcp.Options[i].OptionType == 8 {
-								ts := read_uint32(tcp.Options[i].OptionData[:4])
-								tsecr := read_uint32(tcp.Options[i].OptionData[4:])
-								found.Seen[tcp.Seq] = true
-								if found.SRTT == 0 && sample {
-									if (tsecr - found.TSecr) < 1000 {
-										found.SRTT = uint64(tsecr-found.TSecr) << 3
-									}
-								} else if sample {
-									//Apply softening factor?
-									if (tsecr - found.TSecr) < 1000 {
-										rtt := uint64(tsecr - found.TSecr)
-										rtt -= (found.SRTT >> 3)
-										found.SRTT += rtt
-									}
-
-								}
-
-								if found.SRTT > 1000 {
-									log.Printf("Big gap in: %v - %v\nTCP TS:\t%v - %v\nLAST:\t%v - %v",
-										src, dst, tcp.Seq, tsecr, found.Seq, found.TSecr)
-								}
-
-								if found.SRTT == 0 {
-									found.SRTT = 1
-								}
-								found.TS = ts
-								found.TSecr = tsecr
-								break
+							if found.SRTT == 0 {
+								found.SRTT = rtt << 3
+							} else {
+								//Apply softening factor?
+								rtt -= (found.SRTT >> 3)
+								found.SRTT += rtt
 							}
 						}
-						found.Seq = tcp.Seq
-						found.NextSeq = tcp.Seq + tcp_payload_sz
-						found.Seen[tcp.Seq] = true
+						found.Seen[tcp.Ack] = true
 					}
 				}
-				break
 			}
 		}
 	}
 
 	for k, flow := range flows {
 		if len(flow.Seen) > 1 {
-			log.Printf("Flow %s\t w/ %d packets\tRTT:%d", k, len(flow.Seen), flow.SRTT)
+			log.Printf("Flow %s\t w/ %d packets\tRTT:%d", k, len(flow.Seen), flow.SRTT/1000)
 		}
 	}
 }
