@@ -35,6 +35,7 @@ import (
 var iface = flag.String("i", "en0", "Interface to get packets from")
 var snaplen = flag.Int("s", 65536, "SnapLen for pcap packet capture")
 var filter = flag.String("f", "tcp", "BPF filter for pcap")
+var soften = flag.Bool("t", false, "Soften RTTM")
 var logAllPackets = flag.Bool("v", false, "Log whenever we see a packet")
 var getMinRTT = flag.Bool("m", false, "Return the minimum RTT we have for a given connection.")
 var packetCount = flag.Int("c", -1, `
@@ -51,6 +52,7 @@ type TCPRTT struct {
 	TS, TSecr uint32
 	Seen      map[uint32]bool
 	Timed     map[uint32]int64
+	Sampled   uint32
 	Seq       uint32
 	NextSeq   uint32
 	LastSz    uint32
@@ -61,16 +63,17 @@ type TCPRTT struct {
 func NewTCPRTT(src net.IP, dst net.IP, sport layers.TCPPort, dport layers.TCPPort) *TCPRTT {
 	//log.Printf("new stream %v:%v started", net, transport)
 	t := &TCPRTT{
-		Dst:   dst,
-		Src:   src,
-		Dport: dport,
-		Sport: sport,
-		SRTT:  0,
-		TS:    0,
-		TSecr: 0,
-		Seq:   0,
-		Seen:  make(map[uint32]bool),
-		Timed: make(map[uint32]int64),
+		Dst:     dst,
+		Src:     src,
+		Dport:   dport,
+		Sport:   sport,
+		SRTT:    0,
+		Sampled: 0,
+		TS:      0,
+		TSecr:   0,
+		Seq:     0,
+		Seen:    make(map[uint32]bool),
+		Timed:   make(map[uint32]int64),
 	}
 
 	return t
@@ -219,14 +222,19 @@ func main() {
 						if found.Seen[tcp.Ack] == false && tcp.ACK {
 							//we can't receive an ACK for packet we haven't seen sent - we're the source
 							rtt := uint64(time.Now().UnixNano() - found.Timed[tcp.Ack])
+							if rtt < 1000 {
+								rtt = 1000
+							}
 
 							if found.SRTT == 0 {
-								found.SRTT = rtt << 3
+								found.SRTT = rtt
+							} else if *soften {
+								found.SRTT -= (found.SRTT >> 3)
+								found.SRTT += rtt >> 3
 							} else {
-								//Apply softening factor?
-								rtt -= (found.SRTT >> 3)
 								found.SRTT += rtt
 							}
+							found.Sampled++
 						}
 						found.Seen[tcp.Ack] = true
 					}
@@ -237,7 +245,11 @@ func main() {
 
 	for k, flow := range flows {
 		if len(flow.Seen) > 1 {
-			log.Printf("Flow %s\t w/ %d packets\tRTT:%d", k, len(flow.Seen), flow.SRTT/1000)
+			if *soften {
+				log.Printf("Flow %s\t w/ %d packets\tRTT:%6.2f ms", k, flow.Sampled, float64(int64(flow.SRTT)*int64(time.Nanosecond))/float64(time.Millisecond))
+			} else {
+				log.Printf("Flow %s\t w/ %d packets\tRTT:%6.2f ms", k, flow.Sampled, float64(flow.SRTT)/float64(flow.Sampled)*float64(time.Nanosecond)/float64(time.Millisecond))
+			}
 		}
 	}
 }
