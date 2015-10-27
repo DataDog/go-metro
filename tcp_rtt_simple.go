@@ -20,11 +20,15 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"net"
+	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/google/gopacket"
@@ -42,6 +46,11 @@ var packetCount = flag.Int("c", -1, `
 Quit after processing this many packets, flushing all currently buffered
 connections.  If negative, this is infinite`)
 
+type TCPKey struct {
+	Seq uint32
+	TS  uint32
+}
+
 // scanner handles scanning a single IP address.
 type TCPRTT struct {
 	// destination, gateway (if applicable), and soruce IP addresses to use.
@@ -51,7 +60,7 @@ type TCPRTT struct {
 	SRTT      uint64
 	TS, TSecr uint32
 	Seen      map[uint32]bool
-	Timed     map[uint32]int64
+	Timed     map[TCPKey]int64
 	Sampled   uint32
 	Seq       uint32
 	NextSeq   uint32
@@ -73,16 +82,43 @@ func NewTCPRTT(src net.IP, dst net.IP, sport layers.TCPPort, dport layers.TCPPor
 		TSecr:   0,
 		Seq:     0,
 		Seen:    make(map[uint32]bool),
-		Timed:   make(map[uint32]int64),
+		Timed:   make(map[TCPKey]int64),
 	}
 
 	return t
+}
+
+func (t *TCPRTT) CalcSRTT(rtt uint64) {
+
+	if rtt < 1000 {
+		rtt = 1000
+	}
+
+	if t.SRTT == 0 {
+		t.SRTT = rtt
+	} else if *soften {
+		t.SRTT -= (t.SRTT >> 3)
+		t.SRTT += rtt >> 3
+	} else {
+		t.SRTT += rtt
+	}
 }
 
 func read_uint32(data []byte) (ret uint32) {
 	buf := bytes.NewBuffer(data)
 	binary.Read(buf, binary.BigEndian, &ret)
 	return
+}
+
+func GetTimestamps(tcp *layers.TCP) (uint32, uint32, error) {
+	for i := range tcp.Options {
+		if tcp.Options[i].OptionType == 8 {
+			ts := read_uint32(tcp.Options[i].OptionData[:4])
+			tsecr := read_uint32(tcp.Options[i].OptionData[4:])
+			return ts, tsecr, nil
+		}
+	}
+	return 0, 0, errors.New("No TCP timestamp Options!")
 }
 
 func main() {
@@ -143,6 +179,46 @@ func main() {
 	var ip6extensions layers.IPv6ExtensionSkipper
 	var tcp layers.TCP
 	var payload gopacket.Payload
+
+	//Install signal handler
+	signal_chan := make(chan os.Signal, 1)
+	signal.Notify(signal_chan,
+		syscall.SIGHUP,
+		syscall.SIGINT,
+		syscall.SIGTERM,
+		syscall.SIGQUIT)
+
+	exit_chan := make(chan bool)
+	go func() {
+		for {
+			s := <-signal_chan
+			switch s {
+			// kill -SIGHUP XXXX
+			case syscall.SIGHUP:
+				fmt.Println("hungup")
+				exit_chan <- true
+
+				// kill -SIGINT XXXX or Ctrl+c
+			case syscall.SIGINT:
+				fmt.Println("Warikomi")
+				exit_chan <- true
+
+				// kill -SIGTERM XXXX
+			case syscall.SIGTERM:
+				fmt.Println("force stop")
+				exit_chan <- true
+
+				// kill -SIGQUIT XXXX
+			case syscall.SIGQUIT:
+				fmt.Println("stop and core dump")
+				exit_chan <- true
+
+			default:
+				fmt.Println("Unknown signal.")
+			}
+		}
+	}()
+
 	parser := gopacket.NewDecodingLayerParser(layers.LayerTypeEthernet,
 		&eth, &dot1q, &ip4, &ip6, &ip6extensions, &tcp, &payload)
 	decoded := make([]gopacket.LayerType, 0, 4)
@@ -150,7 +226,8 @@ func main() {
 	var byteCount int64
 
 	flows := make(map[string]*TCPRTT)
-	for ; *packetCount != 0; *packetCount-- {
+	quit := false
+	for ; *packetCount != 0 && !quit; *packetCount-- {
 		// To speed things up, we're also using the ZeroCopy method for
 		// reading packet data.  This method is faster than the normal
 		// ReadPacketData, but the returned bytes in 'data' are
@@ -214,32 +291,48 @@ func main() {
 
 					//tcp_payload_sz := uint32(ip4.Length) - uint32((ip4.IHL+tcp.DataOffset)*4)
 					if our_ip {
-						//do we have to add an entry?
-						if found.Timed[tcp.Seq] == 0 {
-							found.Timed[tcp.Seq] = time.Now().UnixNano()
-						}
-					} else if found.Timed[tcp.Ack] != 0 {
-						if found.Seen[tcp.Ack] == false && tcp.ACK {
-							//we can't receive an ACK for packet we haven't seen sent - we're the source
-							rtt := uint64(time.Now().UnixNano() - found.Timed[tcp.Ack])
-							if rtt < 1000 {
-								rtt = 1000
-							}
+						var t TCPKey
+						//get the TS
+						ts, _, _ := GetTimestamps(&tcp)
+						t.TS = ts
+						t.Seq = tcp.Seq
 
-							if found.SRTT == 0 {
-								found.SRTT = rtt
-							} else if *soften {
-								found.SRTT -= (found.SRTT >> 3)
-								found.SRTT += rtt >> 3
-							} else {
-								found.SRTT += rtt
+						//insert or update
+						found.Timed[t] = time.Now().UnixNano()
+
+						//do we have to add an entry?
+						/*
+							if found.Timed[tcp.Seq] == 0 {
+								found.Timed[tcp.Seq] = time.Now().UnixNano()
 							}
-							found.Sampled++
+						*/
+						//If we see an outgoing duplicate, update timestamp
+
+					} else {
+						var t TCPKey
+						//get the TS
+						_, tsecr, _ := GetTimestamps(&tcp)
+						t.TS = tsecr
+						t.Seq = tcp.Ack
+
+						if found.Timed[t] != 0 {
+							if found.Seen[tcp.Ack] == false && tcp.ACK {
+								//we can't receive an ACK for packet we haven't seen sent - we're the source
+								rtt := uint64(time.Now().UnixNano() - found.Timed[t])
+								found.CalcSRTT(rtt)
+								found.Sampled++
+							}
+							found.Seen[tcp.Ack] = true
 						}
-						found.Seen[tcp.Ack] = true
 					}
 				}
 			}
+		}
+		select {
+		case msg := <-exit_chan:
+			quit = msg
+		default:
+			continue
 		}
 	}
 
