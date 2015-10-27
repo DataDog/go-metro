@@ -289,8 +289,8 @@ func main() {
 
 					flows[src+"-"+dst] = found
 
-					//tcp_payload_sz := uint32(ip4.Length) - uint32((ip4.IHL+tcp.DataOffset)*4)
-					if our_ip {
+					tcp_payload_sz := uint32(ip4.Length) - uint32((ip4.IHL+tcp.DataOffset)*4)
+					if our_ip && tcp_payload_sz > 0 {
 						var t TCPKey
 						//get the TS
 						ts, _, _ := GetTimestamps(&tcp)
@@ -308,7 +308,7 @@ func main() {
 						*/
 						//If we see an outgoing duplicate, update timestamp
 
-					} else {
+					} else if !our_ip {
 						var t TCPKey
 						//get the TS
 						_, tsecr, _ := GetTimestamps(&tcp)
