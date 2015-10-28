@@ -37,14 +37,17 @@ import (
 )
 
 var iface = flag.String("i", "en0", "Interface to get packets from")
-var snaplen = flag.Int("s", 65536, "SnapLen for pcap packet capture")
+var snaplen = flag.Int("sz", 65536, "SnapLen for pcap packet capture")
 var filter = flag.String("f", "tcp", "BPF filter for pcap")
-var soften = flag.Bool("t", false, "Soften RTTM")
+var soften = flag.Bool("st", false, "Soften RTTM")
 var logAllPackets = flag.Bool("v", false, "Log whenever we see a packet")
 var getMinRTT = flag.Bool("m", false, "Return the minimum RTT we have for a given connection.")
 var packetCount = flag.Int("c", -1, `
-Quit after processing this many packets, flushing all currently buffered
-connections.  If negative, this is infinite`)
+Quit after processing this many packets. If negative, ad infinitum.
+Has preference over the 't' flag`)
+
+var sniffTime = flag.Int("t", -1, `
+Quit after processing packets for this many seconds. If negative, ad infinitum.`)
 
 type TCPKey struct {
 	Seq uint32
@@ -141,7 +144,23 @@ func main() {
 	log.Printf("starting capture on interface %q", *iface)
 	log.Printf("About to analyze %v packets", *packetCount)
 	// Set up pcap packet capture
-	handle, err := pcap.OpenLive(*iface, int32(*snaplen), true, 0)
+	inactive, err := pcap.NewInactiveHandle(*iface)
+	if err != nil {
+		log.Fatal("error creating inactive handle: ", err)
+	}
+	defer inactive.CleanUp()
+
+	inactive.SetSnapLen(int(*snaplen))
+	inactive.SetPromisc(false)
+	inactive.SetTimeout(pcap.BlockForever) //change this eventually
+
+	// Maybe we should make the timestamp source selectable.
+	//ts_sources := inactive.SupportedTimestamps()
+	//for i := range ts_sources {
+	//	log.Printf("TS source: %v:%v", ts_sources[i], ts_sources[i].String())
+	//}
+
+	handle, err := inactive.Activate()
 	if err != nil {
 		log.Fatal("error opening pcap handle: ", err)
 	}
@@ -237,8 +256,7 @@ func main() {
 		// appropriate for high-throughput sniffing:  it avoids a packet
 		// copy, but its cost is much more careful handling of the
 		// resulting byte slice.
-		data, _, err := handle.ZeroCopyReadPacketData()
-		//data, _, err := handle.ReadPacketData()
+		data, ci, err := handle.ZeroCopyReadPacketData()
 
 		if err != nil {
 			log.Printf("error getting packet: %v", err)
@@ -298,15 +316,7 @@ func main() {
 						t.Seq = tcp.Seq
 
 						//insert or update
-						found.Timed[t] = time.Now().UnixNano()
-
-						//do we have to add an entry?
-						/*
-							if found.Timed[tcp.Seq] == 0 {
-								found.Timed[tcp.Seq] = time.Now().UnixNano()
-							}
-						*/
-						//If we see an outgoing duplicate, update timestamp
+						found.Timed[t] = ci.Timestamp.UnixNano()
 
 					} else if !our_ip {
 						var t TCPKey
@@ -318,7 +328,7 @@ func main() {
 						if found.Timed[t] != 0 {
 							if found.Seen[tcp.Ack] == false && tcp.ACK {
 								//we can't receive an ACK for packet we haven't seen sent - we're the source
-								rtt := uint64(time.Now().UnixNano() - found.Timed[t])
+								rtt := uint64(ci.Timestamp.UnixNano() - found.Timed[t])
 								found.CalcSRTT(rtt)
 								found.Sampled++
 							}
