@@ -14,6 +14,8 @@ communication we use the TS and TSecr values in the TCP Options, if available, t
 * Clone this repo into your `$GOPATH/src`
 ```bash
 cd $GOPATH
+go get -v gopkg.in/tomb.v2
+go get -v github.com/ooyala/go-dogstatsd
 go get -v github.com/google/gopacket
 go get -v github.com/google/dd_tcp_rtt
 go install github.com/Datadog/dd-tcp-rtt
