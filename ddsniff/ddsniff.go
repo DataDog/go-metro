@@ -94,6 +94,7 @@ func (d *DatadogSniffer) Sniff() error {
 	// Set up pcap packet capture
 	inactive, err := pcap.NewInactiveHandle(d.Iface)
 	if err != nil {
+		d.reporter.Stop()
 		log.Fatal("error creating inactive handle: ", err)
 	}
 	defer inactive.CleanUp()

@@ -119,6 +119,10 @@ func main() {
 		}
 	}
 
+	if len(sniffers) == 0 {
+		log.Fatal("No sniffers available, baling out (please check your privileges).")
+	} 
+
 	quit := false
 	for !quit {
 		msg := <-exit_chan
