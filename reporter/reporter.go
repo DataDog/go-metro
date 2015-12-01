@@ -66,22 +66,29 @@ func (r *Client) Report() error {
 				if err != nil {
 					log.Printf("There was an issue reporting the avg RTT metric: %v", err)
 					success = false
+				} else {
+					log.Printf("system.net.tcp.rtt.avg for %v: %v", tags, value)
 				}
 				err = r.client.Gauge("system.net.tcp.rtt.min", value_min, tags, 1.0)
 				if err != nil {
 					log.Printf("There was an issue reporting the min RTT metric: %v", err)
 					success = false
+				} else {
+					log.Printf("system.net.tcp.rtt.min for %v: %v", tags, value_min)
 				}
+
 				err = r.client.Gauge("system.net.tcp.rtt.max", value_max, tags, 1.0)
 				if err != nil {
 					log.Printf("There was an issue reporting the max RTT metric: %v", err)
 					success = false
+				} else {
+					log.Printf("system.net.tcp.rtt.max for %v: %v", tags, value_max)
 				}
 
 				if success {
 					r.tracker[k] = flow.Sampled
+					log.Printf("Reported on: %v", k)
 				}
-				log.Printf("Reported on: %v", k)
 			}
 		}
 		select {

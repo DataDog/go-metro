@@ -209,7 +209,6 @@ func (d *DatadogSniffer) Sniff() error {
 							src = net.JoinHostPort(ip4.SrcIP.String(), strconv.Itoa(int(tcp.SrcPort)))
 							dst = net.JoinHostPort(ip4.DstIP.String(), strconv.Itoa(int(tcp.DstPort)))
 						} else {
-							// We always consider ourselves the "destination" with respect to the key.
 							src = net.JoinHostPort(ip4.DstIP.String(), strconv.Itoa(int(tcp.DstPort)))
 							dst = net.JoinHostPort(ip4.SrcIP.String(), strconv.Itoa(int(tcp.SrcPort)))
 						}
