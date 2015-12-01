@@ -111,6 +111,7 @@ func (d *DatadogSniffer) Sniff() error {
 
 	handle, err := inactive.Activate()
 	if err != nil {
+		d.reporter.Stop()
 		log.Fatal("error opening pcap handle: ", err)
 	}
 

@@ -34,16 +34,12 @@ var filter = flag.String("f", "tcp", "BPF filter for pcap")
 var soften = flag.Bool("st", false, "Soften RTTM")
 var logAllPackets = flag.Bool("v", false, "Log whenever we see a packet")
 var getMinRTT = flag.Bool("m", false, "Return the minimum RTT we have for a given connection.")
-var packetCount = flag.Int("c", -1, `
-Quit after processing this many packets. If negative, ad infinitum.
+var packetCount = flag.Int("c", -1, `Quit after processing this many packets. If negative, ad infinitum.
 If specified together with the 't' flag, which happens first will end execution`)
-var sniffTime = flag.Int("t", -1, `
-Quit after processing packets for this many seconds. If negative or zero, ad infinitum.
+var sniffTime = flag.Int("t", -1, `Quit after processing packets for this many seconds. If negative or zero, ad infinitum.
 If specified together with the 'c' flag, which happens first will end execution`)
-var expiration_TTL = flag.Int("ttl", 3600, `
-TTL after flow ends - after this time it will be flushed.`)
-var idle_TTL = flag.Int("idle", 3600, `
-TTL a flow can remain idle - after this time it will be flushed.`)
+var expiration_TTL = flag.Int("ttl", 60, `TTL after flow ends - after this time it will be flushed.`)
+var idle_TTL = flag.Int("idle", 300, `TTL a flow can remain idle - after this time it will be flushed.`)
 var statsd_ip = flag.String("r", "127.0.0.1", "IP address to the stats service")
 var statsd_port = flag.Int("p", 8125, "Port to the stats service.")
 
@@ -121,7 +117,7 @@ func main() {
 
 	if len(sniffers) == 0 {
 		log.Fatal("No sniffers available, baling out (please check your privileges).")
-	} 
+	}
 
 	quit := false
 	for !quit {
