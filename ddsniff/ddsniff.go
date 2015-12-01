@@ -217,6 +217,7 @@ func (d *DatadogSniffer) Sniff() error {
 						idle := time.Duration(d.Idle_ttl * int(time.Second))
 						found, exists := d.flows.Get(src + "-" + dst)
 						if exists == false {
+							// TCPAccounting objects self-expire if they are inactive for a period of time >idle
 							// FIXME: refactor this
 							if tcp.SrcPort >= 1024 {
 								found = ddtypes.NewTCPAccounting(ip4.SrcIP, ip4.DstIP, tcp.SrcPort, tcp.DstPort, idle, func() {
@@ -240,12 +241,9 @@ func (d *DatadogSniffer) Sniff() error {
 
 							ttl := time.Duration(d.Exp_ttl * int(time.Second))
 
-							// TODO: here we clean up flows that have expired by the book - that is, we have seen
-							//       the TCP stream come to an end FIN/ACK and have kept these around so short-lived
-							//       flows actually get reported.
-							//       We must make sure we also manage to clean up after flows that are idle for a
-							//       certain period of time.
-							//
+							// Here we clean up flows that have expired by the book - that is, we have seen
+							// the TCP stream come to an end FIN/ACK and have kept these around so short-lived
+							// flows actually get reported.
 
 							//set timer
 							timebombs[src+"-"+dst] = time.AfterFunc(ttl, func() {
@@ -279,6 +277,8 @@ func (d *DatadogSniffer) Sniff() error {
 									//we can't receive an ACK for packet we haven't seen sent - we're the source
 									rtt := uint64(ci.Timestamp.UnixNano() - found.Timed[t])
 									found.CalcSRTT(rtt, d.Soften)
+									found.MaxRTT(rtt)
+									found.MinRTT(rtt)
 									found.Sampled++
 								}
 								found.Seen[tcp.Ack] = true

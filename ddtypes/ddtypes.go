@@ -1,6 +1,7 @@
 package ddtypes
 
 import (
+	"math"
 	"net"
 	"sync"
 	"time"
@@ -20,6 +21,8 @@ type TCPAccounting struct {
 	Dport, Sport layers.TCPPort
 
 	SRTT      uint64
+	Max       uint64
+	Min       uint64
 	TS, TSecr uint32
 	Seen      map[uint32]bool
 	Timed     map[TCPKey]int64
@@ -46,6 +49,8 @@ func NewTCPAccounting(src net.IP, dst net.IP, sport layers.TCPPort, dport layers
 		Dport:   dport,
 		Sport:   sport,
 		SRTT:    0,
+		Max:     0,
+		Min:     math.MaxUint64,
 		Sampled: 0,
 		TS:      0,
 		TSecr:   0,
@@ -121,5 +126,19 @@ func (t *TCPAccounting) CalcSRTT(rtt uint64, soften bool) {
 		t.SRTT += rtt >> 3
 	} else {
 		t.SRTT += rtt
+	}
+}
+
+func (t *TCPAccounting) MaxRTT(sample uint64) {
+
+	if sample > t.Max {
+		t.Max = sample
+	}
+}
+
+func (t *TCPAccounting) MinRTT(sample uint64) {
+
+	if sample < t.Min {
+		t.Min = sample
 	}
 }

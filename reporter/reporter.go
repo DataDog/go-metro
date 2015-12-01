@@ -53,10 +53,20 @@ func (r *Client) Report() error {
 			flow, e := r.flows.Get(k)
 			if e && flow.Sampled > 0 {
 				value := float64(flow.SRTT) / float64(flow.Sampled) * float64(time.Nanosecond) / float64(time.Millisecond)
+				value_min := float64(flow.Min) * float64(time.Nanosecond) / float64(time.Millisecond)
+				value_max := float64(flow.Max) * float64(time.Nanosecond) / float64(time.Millisecond)
 				tags := []string{"link:" + flow.Src.String() + "-" + flow.Dst.String()}
-				err := r.client.Gauge("system.net.tcp.rtt", value, tags, 1.0)
+				err := r.client.Gauge("system.net.tcp.rtt.avg", value, tags, 1.0)
 				if err != nil {
-					log.Printf("There was an issue reporting the metric: %v", err)
+					log.Printf("There was an issue reporting the avg RTT metric: %v", err)
+				}
+				err = r.client.Gauge("system.net.tcp.rtt.min", value_min, tags, 1.0)
+				if err != nil {
+					log.Printf("There was an issue reporting the min RTT metric: %v", err)
+				}
+				err = r.client.Gauge("system.net.tcp.rtt.max", value_max, tags, 1.0)
+				if err != nil {
+					log.Printf("There was an issue reporting the max RTT metric: %v", err)
 				}
 				log.Printf("Reported on: %v", k)
 			}
