@@ -12,12 +12,13 @@ import (
 )
 
 type Client struct {
-	client *dogstatsd.Client
-	ip     net.IP
-	port   int32
-	sleep  int32
-	flows  *ddtypes.FlowMap
-	t      tomb.Tomb
+	client  *dogstatsd.Client
+	ip      net.IP
+	port    int32
+	sleep   int32
+	flows   *ddtypes.FlowMap
+	tracker map[string]uint32
+	t       tomb.Tomb
 }
 
 func NewClient(ip net.IP, port int32, sleep int32, id string, flows *ddtypes.FlowMap) *Client {
@@ -28,10 +29,11 @@ func NewClient(ip net.IP, port int32, sleep int32, id string, flows *ddtypes.Flo
 	}
 
 	r := &Client{
-		client: cli,
-		port:   port,
-		sleep:  sleep,
-		flows:  flows,
+		client:  cli,
+		port:    port,
+		sleep:   sleep,
+		flows:   flows,
+		tracker: make(map[string]uint32),
 	}
 	r.t.Go(r.Report)
 	return r
@@ -51,7 +53,11 @@ func (r *Client) Report() error {
 	for !done {
 		for k := range r.flows.FlowMapKeyIterator() {
 			flow, e := r.flows.Get(k)
-			if e && flow.Sampled > 0 {
+			last, ok := r.tracker[k]
+			if e && flow.Sampled > 0 &&
+				((ok && last != flow.Sampled) || !ok) {
+
+				success := true
 				value := float64(flow.SRTT) / float64(flow.Sampled) * float64(time.Nanosecond) / float64(time.Millisecond)
 				value_min := float64(flow.Min) * float64(time.Nanosecond) / float64(time.Millisecond)
 				value_max := float64(flow.Max) * float64(time.Nanosecond) / float64(time.Millisecond)
@@ -59,14 +65,21 @@ func (r *Client) Report() error {
 				err := r.client.Gauge("system.net.tcp.rtt.avg", value, tags, 1.0)
 				if err != nil {
 					log.Printf("There was an issue reporting the avg RTT metric: %v", err)
+					success = false
 				}
 				err = r.client.Gauge("system.net.tcp.rtt.min", value_min, tags, 1.0)
 				if err != nil {
 					log.Printf("There was an issue reporting the min RTT metric: %v", err)
+					success = false
 				}
 				err = r.client.Gauge("system.net.tcp.rtt.max", value_max, tags, 1.0)
 				if err != nil {
 					log.Printf("There was an issue reporting the max RTT metric: %v", err)
+					success = false
+				}
+
+				if success {
+					r.tracker[k] = flow.Sampled
 				}
 				log.Printf("Reported on: %v", k)
 			}
