@@ -21,8 +21,13 @@ type Client struct {
 	t       tomb.Tomb
 }
 
-func NewClient(ip net.IP, port int32, sleep int32, id string, flows *ddtypes.FlowMap) *Client {
-	cli, err := statsd.New(net.JoinHostPort(ip.String(), strconv.Itoa(int(port))))
+const (
+	Statsd_bufflen = 6
+	Statsd_sleep   = 30
+)
+
+func NewClient(ip net.IP, port int32, sleep int32, flows *ddtypes.FlowMap) *Client {
+	cli, err := statsd.NewBuffered(net.JoinHostPort(ip.String(), strconv.Itoa(int(port))), Statsd_bufflen)
 	if err != nil {
 		cli = nil
 		log.Printf("Error instantiating stats Statter: %v", err)
@@ -50,44 +55,47 @@ func (r *Client) Report() error {
 
 	log.Printf("Started reporting.")
 
+	report := int32(0)
 	for !done {
-		for k := range r.flows.FlowMapKeyIterator() {
-			flow, e := r.flows.Get(k)
-			last, ok := r.tracker[k]
-			if e && flow.Sampled > 0 &&
-				((ok && last != flow.Sampled) || !ok) {
+		if report == 0 {
+			for k := range r.flows.FlowMapKeyIterator() {
+				flow, e := r.flows.Get(k)
+				last, ok := r.tracker[k]
+				if e && flow.Sampled > 0 &&
+					((ok && last != flow.Sampled) || !ok) {
 
-				success := true
-				value := float64(flow.SRTT) / float64(flow.Sampled) * float64(time.Nanosecond) / float64(time.Millisecond)
-				value_min := float64(flow.Min) * float64(time.Nanosecond) / float64(time.Millisecond)
-				value_max := float64(flow.Max) * float64(time.Nanosecond) / float64(time.Millisecond)
-				tags := []string{"link:" + flow.Src.String() + "-" + flow.Dst.String()}
-				err := r.client.Gauge("system.net.tcp.rtt.avg", value, tags, 1.0)
-				if err != nil {
-					log.Printf("There was an issue reporting the avg RTT metric: %v", err)
-					success = false
-				} else {
-					log.Printf("system.net.tcp.rtt.avg for %v: %v", tags, value)
-				}
-				err = r.client.Gauge("system.net.tcp.rtt.min", value_min, tags, 1.0)
-				if err != nil {
-					log.Printf("There was an issue reporting the min RTT metric: %v", err)
-					success = false
-				} else {
-					log.Printf("system.net.tcp.rtt.min for %v: %v", tags, value_min)
-				}
+					success := true
+					value := float64(flow.SRTT) / float64(flow.Sampled) * float64(time.Nanosecond) / float64(time.Millisecond)
+					value_min := float64(flow.Min) * float64(time.Nanosecond) / float64(time.Millisecond)
+					value_max := float64(flow.Max) * float64(time.Nanosecond) / float64(time.Millisecond)
+					tags := []string{"link:" + flow.Src.String() + "-" + flow.Dst.String()}
+					err := r.client.Gauge("system.net.tcp.rtt.avg", value, tags, 1)
+					if err != nil {
+						log.Printf("There was an issue reporting the avg RTT metric: %v", err)
+						success = false
+					} else {
+						log.Printf("system.net.tcp.rtt.avg for %v: %v", tags, value)
+					}
+					err = r.client.Gauge("system.net.tcp.rtt.min", value_min, tags, 1)
+					if err != nil {
+						log.Printf("There was an issue reporting the min RTT metric: %v", err)
+						success = false
+					} else {
+						log.Printf("system.net.tcp.rtt.min for %v: %v", tags, value_min)
+					}
 
-				err = r.client.Gauge("system.net.tcp.rtt.max", value_max, tags, 1.0)
-				if err != nil {
-					log.Printf("There was an issue reporting the max RTT metric: %v", err)
-					success = false
-				} else {
-					log.Printf("system.net.tcp.rtt.max for %v: %v", tags, value_max)
-				}
+					err = r.client.Gauge("system.net.tcp.rtt.max", value_max, tags, 1)
+					if err != nil {
+						log.Printf("There was an issue reporting the max RTT metric: %v", err)
+						success = false
+					} else {
+						log.Printf("system.net.tcp.rtt.max for %v: %v", tags, value_max)
+					}
 
-				if success {
-					r.tracker[k] = flow.Sampled
-					log.Printf("Reported on: %v", k)
+					if success {
+						r.tracker[k] = flow.Sampled
+						log.Printf("Reported on: %v", k)
+					}
 				}
 			}
 		}
@@ -97,8 +105,10 @@ func (r *Client) Report() error {
 			return nil
 		case _ = <-time.After(1 * time.Second):
 		}
+		report++
+		report = report % r.sleep
 		//-1 because we're sleeping for a second above
-		time.Sleep(time.Duration(r.sleep-1) * time.Second)
+		//time.Sleep(time.Duration(r.sleep-1) * time.Second)
 	}
 
 	return nil

@@ -47,7 +47,7 @@ func NewDatadogSniffer(iface string, snaplen int, filter string, exp_ttl int, id
 		statsd_port: statsd_port,
 		flows:       ddtypes.NewFlowMap(),
 	}
-	d.reporter = reporter.NewClient(net.ParseIP(d.statsd_ip), d.statsd_port, 15, "Statsd Reporting.", d.flows)
+	d.reporter = reporter.NewClient(net.ParseIP(d.statsd_ip), d.statsd_port, reporter.Statsd_sleep, d.flows)
 	d.t.Go(d.Sniff)
 
 	return d
