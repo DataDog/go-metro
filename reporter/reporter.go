@@ -60,9 +60,7 @@ func (r *Client) Report() error {
 		if report == 0 {
 			for k := range r.flows.FlowMapKeyIterator() {
 				flow, e := r.flows.Get(k)
-				last, ok := r.tracker[k]
-				if e && flow.Sampled > 0 &&
-					((ok && last != flow.Sampled) || !ok) {
+				if e && flow.Sampled > 0 {
 
 					success := true
 					value := float64(flow.SRTT) / float64(flow.Sampled) * float64(time.Nanosecond) / float64(time.Millisecond)
