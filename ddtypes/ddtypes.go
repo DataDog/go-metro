@@ -23,6 +23,7 @@ type TCPAccounting struct {
 	SRTT      uint64
 	Max       uint64
 	Min       uint64
+	Last      uint64
 	TS, TSecr uint32
 	Seen      map[uint32]bool
 	Timed     map[TCPKey]int64
@@ -51,6 +52,7 @@ func NewTCPAccounting(src net.IP, dst net.IP, sport layers.TCPPort, dport layers
 		SRTT:    0,
 		Max:     0,
 		Min:     math.MaxUint64,
+		Last:    0,
 		Sampled: 0,
 		TS:      0,
 		TSecr:   0,
@@ -129,6 +131,7 @@ func (t *TCPAccounting) CalcSRTT(rtt uint64, soften bool) {
 	} else {
 		t.SRTT += rtt
 	}
+	t.Last = rtt
 }
 
 func (t *TCPAccounting) MaxRTT(sample uint64) {

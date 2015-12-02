@@ -22,7 +22,7 @@ type Client struct {
 }
 
 const (
-	Statsd_bufflen = 6
+	Statsd_bufflen = 4
 	Statsd_sleep   = 30
 )
 
@@ -64,6 +64,7 @@ func (r *Client) Report() error {
 
 					success := true
 					value := float64(flow.SRTT) / float64(flow.Sampled) * float64(time.Nanosecond) / float64(time.Millisecond)
+					value_last := float64(flow.Last) * float64(time.Nanosecond) / float64(time.Millisecond)
 					value_min := float64(flow.Min) * float64(time.Nanosecond) / float64(time.Millisecond)
 					value_max := float64(flow.Max) * float64(time.Nanosecond) / float64(time.Millisecond)
 					tags := []string{"link:" + flow.Src.String() + "-" + flow.Dst.String()}
@@ -73,6 +74,13 @@ func (r *Client) Report() error {
 						success = false
 					} else {
 						log.Printf("system.net.tcp.rtt.avg for %v: %v", tags, value)
+					}
+					err = r.client.Gauge("system.net.tcp.rtt.last", value_last, tags, 1)
+					if err != nil {
+						log.Printf("There was an issue reporting the last RTT metric: %v", err)
+						success = false
+					} else {
+						log.Printf("system.net.tcp.rtt.last for %v: %v", tags, value_last)
 					}
 					err = r.client.Gauge("system.net.tcp.rtt.min", value_min, tags, 1)
 					if err != nil {
