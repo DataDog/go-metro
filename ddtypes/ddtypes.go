@@ -20,7 +20,8 @@ type TCPAccounting struct {
 	Dst, Src     net.IP
 	Dport, Sport layers.TCPPort
 
-	SRTT      uint64
+	SRTT      float64
+	Jitter    float64
 	Max       uint64
 	Min       uint64
 	Last      uint64
@@ -28,7 +29,7 @@ type TCPAccounting struct {
 	Seen      map[uint32]bool
 	Timed     map[TCPKey]int64
 	Done      bool
-	Sampled   uint32
+	Sampled   uint64
 	Seq       uint32
 	NextSeq   uint32
 	LastSz    uint32
@@ -50,6 +51,7 @@ func NewTCPAccounting(src net.IP, dst net.IP, sport layers.TCPPort, dport layers
 		Dport:   dport,
 		Sport:   sport,
 		SRTT:    0,
+		Jitter:  0,
 		Max:     0,
 		Min:     math.MaxUint64,
 		Last:    0,
@@ -124,14 +126,26 @@ func (t *TCPAccounting) CalcSRTT(rtt uint64, soften bool) {
 	}
 
 	if t.SRTT == 0 {
-		t.SRTT = rtt
+		t.SRTT = float64(rtt)
 	} else if soften {
-		t.SRTT -= (t.SRTT >> 3)
-		t.SRTT += rtt >> 3
+		t.SRTT -= float64(int64(t.SRTT) >> 3)
+		t.SRTT += float64(rtt >> 3)
 	} else {
-		t.SRTT += rtt
+		t.SRTT = float64(t.Sampled)*t.SRTT/float64(t.Sampled+1) + float64(rtt)/float64(t.Sampled+1)
 	}
-	t.Last = rtt
+
+}
+
+func (t *TCPAccounting) CalcJitter(rtt uint64) {
+
+	if t.Sampled > 0 {
+		diff := int64(rtt - t.Last)
+		if diff < 0 {
+			diff = -1 * diff
+		}
+		t.Jitter -= float64(int64(t.Jitter) >> 3)
+		t.Jitter += float64(diff >> 3)
+	}
 }
 
 func (t *TCPAccounting) MaxRTT(sample uint64) {
@@ -142,6 +156,10 @@ func (t *TCPAccounting) MaxRTT(sample uint64) {
 }
 
 func (t *TCPAccounting) MinRTT(sample uint64) {
+
+	if sample < 1000 {
+		sample = 1000
+	}
 
 	if sample < t.Min {
 		t.Min = sample

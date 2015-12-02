@@ -279,6 +279,7 @@ func (d *DatadogSniffer) Sniff() error {
 									found.CalcSRTT(rtt, d.Soften)
 									found.MaxRTT(rtt)
 									found.MinRTT(rtt)
+									found.Last = rtt
 									found.Sampled++
 								}
 								found.Seen[tcp.Ack] = true
@@ -303,7 +304,7 @@ func (d *DatadogSniffer) Sniff() error {
 			if d.Soften {
 				log.Printf("Flow %s\t w/ %d packets\tRTT:%6.2f ms", k, flow.Sampled, float64(int64(flow.SRTT)*int64(time.Nanosecond))/float64(time.Millisecond))
 			} else {
-				log.Printf("Flow %s\t w/ %d packets\tRTT:%6.2f ms", k, flow.Sampled, float64(flow.SRTT)/float64(flow.Sampled)*float64(time.Nanosecond)/float64(time.Millisecond))
+				log.Printf("Flow %s\t w/ %d packets\tRTT:%6.2f ms", k, flow.Sampled, float64(flow.SRTT)*float64(time.Nanosecond)/float64(time.Millisecond))
 			}
 		}
 	}

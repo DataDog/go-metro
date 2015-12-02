@@ -17,7 +17,7 @@ type Client struct {
 	port    int32
 	sleep   int32
 	flows   *ddtypes.FlowMap
-	tracker map[string]uint32
+	tracker map[string]uint64
 	t       tomb.Tomb
 }
 
@@ -38,7 +38,7 @@ func NewClient(ip net.IP, port int32, sleep int32, flows *ddtypes.FlowMap) *Clie
 		port:    port,
 		sleep:   sleep,
 		flows:   flows,
-		tracker: make(map[string]uint32),
+		tracker: make(map[string]uint64),
 	}
 	r.t.Go(r.Report)
 	return r
@@ -63,7 +63,8 @@ func (r *Client) Report() error {
 				if e && flow.Sampled > 0 {
 
 					success := true
-					value := float64(flow.SRTT) / float64(flow.Sampled) * float64(time.Nanosecond) / float64(time.Millisecond)
+					value := float64(flow.SRTT) * float64(time.Nanosecond) / float64(time.Millisecond)
+					value_jitter := float64(flow.Jitter) * float64(time.Nanosecond) / float64(time.Millisecond)
 					value_last := float64(flow.Last) * float64(time.Nanosecond) / float64(time.Millisecond)
 					value_min := float64(flow.Min) * float64(time.Nanosecond) / float64(time.Millisecond)
 					value_max := float64(flow.Max) * float64(time.Nanosecond) / float64(time.Millisecond)
@@ -74,6 +75,13 @@ func (r *Client) Report() error {
 						success = false
 					} else {
 						log.Printf("system.net.tcp.rtt.avg for %v: %v", tags, value)
+					}
+					err = r.client.Gauge("system.net.tcp.rtt.jitter", value_jitter, tags, 1)
+					if err != nil {
+						log.Printf("There was an issue reporting the jitter RTT metric: %v", err)
+						success = false
+					} else {
+						log.Printf("system.net.tcp.rtt.jitter for %v: %v", tags, value_jitter)
 					}
 					err = r.client.Gauge("system.net.tcp.rtt.last", value_last, tags, 1)
 					if err != nil {
