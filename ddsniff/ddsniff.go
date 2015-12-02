@@ -164,7 +164,7 @@ func (d *DatadogSniffer) Sniff() error {
 
 	var byteCount int64
 
-	timebombs := make(map[string]*time.Timer)
+	//timebombs := make(map[string]*time.Timer)
 
 	quit := false
 	for !quit {
@@ -239,18 +239,21 @@ func (d *DatadogSniffer) Sniff() error {
 						if d.Exp_ttl > 0 && tcp.ACK && tcp.FIN && !found.Done {
 							found.Done = true
 
-							ttl := time.Duration(d.Exp_ttl * int(time.Second))
+							//ttl := time.Duration(d.Exp_ttl * int(time.Second))
 
 							// Here we clean up flows that have expired by the book - that is, we have seen
 							// the TCP stream come to an end FIN/ACK and have kept these around so short-lived
 							// flows actually get reported.
 
 							//set timer
-							timebombs[src+"-"+dst] = time.AfterFunc(ttl, func() {
-								d.flows.Delete(src + "-" + dst)
-								delete(timebombs, src+"-"+dst)
-								log.Printf("%v flow expired.", src+"-"+dst)
-							})
+							// timebombs[src+"-"+dst] = time.AfterFunc(ttl, func() {
+							// 	d.flows.Delete(src + "-" + dst)
+							// 	delete(timebombs, src+"-"+dst)
+							// 	log.Printf("%v flow expired.", src+"-"+dst)
+							// })
+
+							// Immediately expire flow.
+							d.flows.Delete(src + "-" + dst)
 
 						}
 
