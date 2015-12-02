@@ -204,8 +204,9 @@ func (d *DatadogSniffer) Sniff() error {
 						var src, dst string
 						our_ip := host_ips[ip4.SrcIP.String()]
 
-						// source/destination are based on who has the ephemeral port
-						if tcp.SrcPort >= 1024 {
+						// consider us always the SRC (this will help us keep just one tag for
+						// all comms between two ip's
+						if our_ip {
 							src = net.JoinHostPort(ip4.SrcIP.String(), strconv.Itoa(int(tcp.SrcPort)))
 							dst = net.JoinHostPort(ip4.DstIP.String(), strconv.Itoa(int(tcp.DstPort)))
 						} else {
@@ -218,7 +219,7 @@ func (d *DatadogSniffer) Sniff() error {
 						if exists == false {
 							// TCPAccounting objects self-expire if they are inactive for a period of time >idle
 							// FIXME: refactor this
-							if tcp.SrcPort >= 1024 {
+							if our_ip {
 								found = ddtypes.NewTCPAccounting(ip4.SrcIP, ip4.DstIP, tcp.SrcPort, tcp.DstPort, idle, func() {
 									d.flows.Delete(src + "-" + dst)
 									log.Printf("%v flow annihilated.", src+"-"+dst)
