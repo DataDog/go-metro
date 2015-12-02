@@ -178,7 +178,7 @@ func (d *DatadogSniffer) Sniff() error {
 		// appropriate for high-throughput sniffing:  it avoids a packet
 		// copy, but its cost is much more careful handling of the
 		// resulting byte slice.
-		data, ci, err := handle.ZeroCopyReadPacketData()
+		data, ci, err := handle.ReadPacketData()
 
 		if err == nil {
 			err = parser.DecodeLayers(data, &decoded)
