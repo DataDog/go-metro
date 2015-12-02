@@ -7,12 +7,12 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/DataDog/datadog-go/statsd"
 	"github.com/Datadog/dd-tcp-rtt/ddtypes"
-	"github.com/ooyala/go-dogstatsd"
 )
 
 type Client struct {
-	client  *dogstatsd.Client
+	client  *statsd.Client
 	ip      net.IP
 	port    int32
 	sleep   int32
@@ -22,7 +22,7 @@ type Client struct {
 }
 
 func NewClient(ip net.IP, port int32, sleep int32, id string, flows *ddtypes.FlowMap) *Client {
-	cli, err := dogstatsd.New(net.JoinHostPort(ip.String(), strconv.Itoa(int(port))))
+	cli, err := statsd.New(net.JoinHostPort(ip.String(), strconv.Itoa(int(port))))
 	if err != nil {
 		cli = nil
 		log.Printf("Error instantiating stats Statter: %v", err)
