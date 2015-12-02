@@ -92,7 +92,9 @@ func (f *FlowMap) Exists(key string) bool {
 }
 
 func (f *FlowMap) Delete(key string) {
+	f.Lock()
 	delete(f.Map, key)
+	f.Unlock()
 }
 
 // NOTE: Never call break on a loop that uses this FlowMapKeyIterator, or else you

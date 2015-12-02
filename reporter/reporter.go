@@ -105,8 +105,6 @@ func (r *Client) Report() error {
 		}
 		report++
 		report = report % r.sleep
-		//-1 because we're sleeping for a second above
-		//time.Sleep(time.Duration(r.sleep-1) * time.Second)
 	}
 
 	return nil
