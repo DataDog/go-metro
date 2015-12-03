@@ -122,7 +122,7 @@ func (f *FlowMap) FlowMapKeyIterator() <-chan string {
 func (t *TCPAccounting) CalcSRTT(rtt uint64, soften bool) {
 
 	if rtt < 1000 {
-		rtt = 1000
+		rtt = 1001
 	}
 
 	if t.SRTT == 0 {
@@ -136,15 +136,19 @@ func (t *TCPAccounting) CalcSRTT(rtt uint64, soften bool) {
 
 }
 
-func (t *TCPAccounting) CalcJitter(rtt uint64) {
+func (t *TCPAccounting) CalcJitter(rtt uint64, soften bool) {
 
 	if t.Sampled > 0 {
 		diff := int64(rtt - t.Last)
 		if diff < 0 {
 			diff = -1 * diff
 		}
-		t.Jitter -= float64(int64(t.Jitter) >> 3)
-		t.Jitter += float64(diff >> 3)
+		if soften {
+			t.Jitter -= float64(int64(t.Jitter) >> 3)
+			t.Jitter += float64(diff >> 3)
+		} else {
+			t.Jitter = float64(t.Sampled)*t.Jitter/float64(t.Sampled+1) + float64(diff)/float64(t.Sampled+1)
+		}
 	}
 }
 

@@ -277,6 +277,7 @@ func (d *DatadogSniffer) Sniff() error {
 									//we can't receive an ACK for packet we haven't seen sent - we're the source
 									rtt := uint64(ci.Timestamp.UnixNano() - found.Timed[t])
 									found.CalcSRTT(rtt, d.Soften)
+									found.CalcJitter(rtt, d.Soften)
 									found.MaxRTT(rtt)
 									found.MinRTT(rtt)
 									found.Last = rtt
