@@ -12,13 +12,12 @@ import (
 )
 
 type Client struct {
-	client  *statsd.Client
-	ip      net.IP
-	port    int32
-	sleep   int32
-	flows   *ddtypes.FlowMap
-	tracker map[string]uint64
-	t       tomb.Tomb
+	client *statsd.Client
+	ip     net.IP
+	port   int32
+	sleep  int32
+	flows  *ddtypes.FlowMap
+	t      tomb.Tomb
 }
 
 const (
@@ -34,11 +33,10 @@ func NewClient(ip net.IP, port int32, sleep int32, flows *ddtypes.FlowMap) *Clie
 	}
 
 	r := &Client{
-		client:  cli,
-		port:    port,
-		sleep:   sleep,
-		flows:   flows,
-		tracker: make(map[string]uint64),
+		client: cli,
+		port:   port,
+		sleep:  sleep,
+		flows:  flows,
 	}
 	r.t.Go(r.Report)
 	return r
@@ -60,6 +58,7 @@ func (r *Client) Report() error {
 		if report == 0 {
 			for k := range r.flows.FlowMapKeyIterator() {
 				flow, e := r.flows.Get(k)
+				flow.RLock()
 				if e && flow.Sampled > 0 {
 
 					success := true
@@ -107,12 +106,25 @@ func (r *Client) Report() error {
 					}
 
 					if success {
-						r.tracker[k] = flow.Sampled
 						log.Printf("Reported on: %v", k)
 					}
 				}
+				flow.RUnlock()
 			}
 		}
+
+		//expire old flows...
+		expire := true
+		for expire {
+			select {
+			case key := <-r.flows.Expire:
+				r.flows.Delete(key)
+				log.Printf("Flow with key %v expired.", key)
+			default:
+				expire = false
+			}
+		}
+
 		select {
 		case <-r.t.Dying():
 			log.Printf("Done reporting.")
