@@ -215,30 +215,32 @@ func (d *DatadogSniffer) Sniff() error {
 						}
 
 						idle := time.Duration(d.Idle_ttl * int(time.Second))
-						found, exists := d.flows.Get(src + "-" + dst)
+						flow, exists := d.flows.Get(src + "-" + dst)
 						if exists == false {
 							// TCPAccounting objects self-expire if they are inactive for a period of time >idle
 							// FIXME: refactor this
 							if our_ip {
-								found = ddtypes.NewTCPAccounting(ip4.SrcIP, ip4.DstIP, tcp.SrcPort, tcp.DstPort, idle, func() {
-									d.flows.Delete(src + "-" + dst)
-									log.Printf("%v flow annihilated.", src+"-"+dst)
+								flow = ddtypes.NewTCPAccounting(ip4.SrcIP, ip4.DstIP, tcp.SrcPort, tcp.DstPort, idle, func() {
+									flow.Done = true
+									d.flows.Expire <- src + "-" + dst
+									log.Printf("%v flow marked for removal.", src+"-"+dst)
 								})
 							} else {
-								found = ddtypes.NewTCPAccounting(ip4.DstIP, ip4.SrcIP, tcp.DstPort, tcp.SrcPort, idle, func() {
-									d.flows.Delete(src + "-" + dst)
-									log.Printf("%v flow annihilated.", src+"-"+dst)
+								flow = ddtypes.NewTCPAccounting(ip4.DstIP, ip4.SrcIP, tcp.DstPort, tcp.SrcPort, idle, func() {
+									flow.Done = true
+									d.flows.Expire <- src + "-" + dst
+									log.Printf("%v flow marked for removal.", src+"-"+dst)
 								})
 							}
-							d.flows.Add(src+"-"+dst, found)
+							flow.Lock()
+							d.flows.Add(src+"-"+dst, flow)
 						} else {
 							//flow still alive - reset timer
-							found.Alive.Reset(idle)
+							flow.Lock()
+							flow.Alive.Reset(idle)
 						}
 
-						if d.Exp_ttl > 0 && tcp.ACK && tcp.FIN && !found.Done {
-							found.Done = true
-
+						if d.Exp_ttl > 0 && tcp.ACK && tcp.FIN && !flow.Done {
 							ttl := time.Duration(d.Exp_ttl * int(time.Second))
 
 							// Here we clean up flows that have expired by the book - that is, we have seen
@@ -247,11 +249,10 @@ func (d *DatadogSniffer) Sniff() error {
 
 							//set timer
 							timebombs[src+"-"+dst] = time.AfterFunc(ttl, func() {
-								d.flows.Delete(src + "-" + dst)
+								flow.Done = true
+								d.flows.Expire <- src + "-" + dst
 								delete(timebombs, src+"-"+dst)
-								log.Printf("%v flow expired.", src+"-"+dst)
 							})
-
 						}
 
 						tcp_payload_sz := uint32(ip4.Length) - uint32((ip4.IHL+tcp.DataOffset)*4)
@@ -263,7 +264,7 @@ func (d *DatadogSniffer) Sniff() error {
 							t.Seq = tcp.Seq
 
 							//insert or update
-							found.Timed[t] = ci.Timestamp.UnixNano()
+							flow.Timed[t] = ci.Timestamp.UnixNano()
 
 						} else if !our_ip {
 							var t ddtypes.TCPKey
@@ -272,20 +273,21 @@ func (d *DatadogSniffer) Sniff() error {
 							t.TS = tsecr
 							t.Seq = tcp.Ack
 
-							if found.Timed[t] != 0 {
-								if found.Seen[tcp.Ack] == false && tcp.ACK {
+							if flow.Timed[t] != 0 {
+								if flow.Seen[tcp.Ack] == false && tcp.ACK {
 									//we can't receive an ACK for packet we haven't seen sent - we're the source
-									rtt := uint64(ci.Timestamp.UnixNano() - found.Timed[t])
-									found.CalcSRTT(rtt, d.Soften)
-									found.CalcJitter(rtt, d.Soften)
-									found.MaxRTT(rtt)
-									found.MinRTT(rtt)
-									found.Last = rtt
-									found.Sampled++
+									rtt := uint64(ci.Timestamp.UnixNano() - flow.Timed[t])
+									flow.CalcSRTT(rtt, d.Soften)
+									flow.CalcJitter(rtt, d.Soften)
+									flow.MaxRTT(rtt)
+									flow.MinRTT(rtt)
+									flow.Last = rtt
+									flow.Sampled++
 								}
-								found.Seen[tcp.Ack] = true
+								flow.Seen[tcp.Ack] = true
 							}
 						}
+						flow.Unlock()
 					}
 				}
 			}

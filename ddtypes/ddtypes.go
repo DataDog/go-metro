@@ -20,6 +20,7 @@ type TCPAccounting struct {
 	Dst, Src     net.IP
 	Dport, Sport layers.TCPPort
 
+	sync.RWMutex
 	SRTT      uint64
 	Jitter    uint64
 	Max       uint64
@@ -38,7 +39,8 @@ type TCPAccounting struct {
 
 type FlowMap struct {
 	sync.RWMutex
-	Map map[string]*TCPAccounting
+	Map    map[string]*TCPAccounting
+	Expire chan string
 }
 
 // New creates a new stream.  It's called whenever the assembler sees a stream
@@ -70,7 +72,8 @@ func NewTCPAccounting(src net.IP, dst net.IP, sport layers.TCPPort, dport layers
 
 func NewFlowMap() *FlowMap {
 	m := &FlowMap{
-		Map: make(map[string]*TCPAccounting),
+		Map:    make(map[string]*TCPAccounting),
+		Expire: make(chan string),
 	}
 	return m
 }
