@@ -70,6 +70,9 @@ func (r *Client) Report() error {
 		case <-r.t.Dying():
 			log.Printf("Done reporting.")
 			return nil
+		case key := <-r.flows.Expire:
+			r.flows.Delete(key)
+			log.Printf("Flow with key %v expired.", key)
 		case metric := <-r.metrics:
 			if metric.Mtype == ddtypes.Gauge {
 				err := r.client.Gauge(metric.Name, metric.Value, metric.Tags, 1)
@@ -82,9 +85,6 @@ func (r *Client) Report() error {
 					log.Printf("There was an issue reporting the rate metric: %v with err %v", metric.Name, err)
 				}
 			}
-		case key := <-r.flows.Expire:
-			r.flows.Delete(key)
-			log.Printf("Flow with key %v expired.", key)
 		case _ = <-time.After(1 * time.Second):
 		}
 	}
