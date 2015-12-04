@@ -283,12 +283,57 @@ func (d *DatadogSniffer) Sniff() error {
 								if flow.Seen[tcp.Ack] == false && tcp.ACK {
 									//we can't receive an ACK for packet we haven't seen sent - we're the source
 									rtt := uint64(ci.Timestamp.UnixNano() - flow.Timed[t])
+									now := time.Now().Unix()
 									flow.CalcSRTT(rtt, d.Soften)
 									flow.CalcJitter(rtt, d.Soften)
 									flow.MaxRTT(rtt)
 									flow.MinRTT(rtt)
 									flow.Last = rtt
 									flow.Sampled++
+									if (now - int64(flow.LastRepd)) >= reporter.Statsd_sleep {
+										srtt := float64(flow.SRTT) * float64(time.Nanosecond) / float64(time.Millisecond)
+										jitter := float64(flow.Jitter) * float64(time.Nanosecond) / float64(time.Millisecond)
+										last := float64(flow.Last) * float64(time.Nanosecond) / float64(time.Millisecond)
+										min := float64(flow.Min) * float64(time.Nanosecond) / float64(time.Millisecond)
+										max := float64(flow.Max) * float64(time.Nanosecond) / float64(time.Millisecond)
+										tags := []string{"link:" + flow.Src.String() + "-" + flow.Dst.String()}
+
+										metric := ddtypes.NewMetric(ddtypes.Gauge, "system.net.tcp.rtt.avg", tags, srtt)
+										err = d.reporter.ReportMetric(metric)
+										if err != nil {
+											log.Printf("%v", err)
+										}
+
+										metric = ddtypes.NewMetric(ddtypes.Gauge, "system.net.tcp.rtt.jitter", tags, jitter)
+										d.reporter.ReportMetric(metric)
+										err = d.reporter.ReportMetric(metric)
+										if err != nil {
+											log.Printf("%v", err)
+										}
+
+										metric = ddtypes.NewMetric(ddtypes.Gauge, "system.net.tcp.rtt.last", tags, last)
+										d.reporter.ReportMetric(metric)
+										err = d.reporter.ReportMetric(metric)
+										if err != nil {
+											log.Printf("%v", err)
+										}
+
+										metric = ddtypes.NewMetric(ddtypes.Gauge, "system.net.tcp.rtt.max", tags, max)
+										d.reporter.ReportMetric(metric)
+										err = d.reporter.ReportMetric(metric)
+										if err != nil {
+											log.Printf("%v", err)
+										}
+
+										metric = ddtypes.NewMetric(ddtypes.Gauge, "system.net.tcp.rtt.min", tags, min)
+										d.reporter.ReportMetric(metric)
+										err = d.reporter.ReportMetric(metric)
+										if err != nil {
+											log.Printf("%v", err)
+										}
+
+										flow.LastRepd = now
+									}
 								}
 								flow.Seen[tcp.Ack] = true
 							}

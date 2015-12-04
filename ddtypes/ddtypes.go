@@ -14,6 +14,32 @@ type TCPKey struct {
 	TS  uint32
 }
 
+const (
+	BufSz = 30 //hardcoded buffer size
+)
+
+const (
+	Gauge = 1
+	Rate  = 2
+)
+
+type Metric struct {
+	Mtype uint8
+	Name  string
+	Tags  []string
+	Value float64
+}
+
+func NewMetric(mtype uint8, name string, tags []string, val float64) *Metric {
+	m := &Metric{
+		Mtype: mtype,
+		Name:  name,
+		Tags:  tags,
+		Value: val,
+	}
+	return m
+}
+
 // scanner handles scanning a single IP address.
 type TCPAccounting struct {
 	// destination, gateway (if applicable), and soruce IP addresses to use.
@@ -26,6 +52,7 @@ type TCPAccounting struct {
 	Max       uint64
 	Min       uint64
 	Last      uint64
+	LastRepd  int64
 	TS, TSecr uint32
 	Seen      map[uint32]bool
 	Timed     map[TCPKey]int64
@@ -48,23 +75,24 @@ type FlowMap struct {
 func NewTCPAccounting(src net.IP, dst net.IP, sport layers.TCPPort, dport layers.TCPPort, d time.Duration, cb func()) *TCPAccounting {
 	//log.Printf("new stream %v:%v started", net, transport)
 	t := &TCPAccounting{
-		Dst:     dst,
-		Src:     src,
-		Dport:   dport,
-		Sport:   sport,
-		SRTT:    0,
-		Jitter:  0,
-		Max:     0,
-		Min:     math.MaxUint64,
-		Last:    0,
-		Sampled: 0,
-		TS:      0,
-		TSecr:   0,
-		Seq:     0,
-		Done:    false,
-		Seen:    make(map[uint32]bool),
-		Timed:   make(map[TCPKey]int64),
-		Alive:   time.AfterFunc(d, cb),
+		Dst:      dst,
+		Src:      src,
+		Dport:    dport,
+		Sport:    sport,
+		SRTT:     0,
+		Jitter:   0,
+		Max:      0,
+		Min:      math.MaxUint64,
+		Last:     0,
+		LastRepd: time.Now().Unix(),
+		Sampled:  0,
+		TS:       0,
+		TSecr:    0,
+		Seq:      0,
+		Done:     false,
+		Seen:     make(map[uint32]bool),
+		Timed:    make(map[TCPKey]int64),
+		Alive:    time.AfterFunc(d, cb),
 	}
 
 	return t
@@ -73,7 +101,7 @@ func NewTCPAccounting(src net.IP, dst net.IP, sport layers.TCPPort, dport layers
 func NewFlowMap() *FlowMap {
 	m := &FlowMap{
 		Map:    make(map[string]*TCPAccounting),
-		Expire: make(chan string),
+		Expire: make(chan string, BufSz),
 	}
 	return m
 }
