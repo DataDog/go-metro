@@ -221,13 +221,17 @@ func (d *DatadogSniffer) Sniff() error {
 							// FIXME: refactor this
 							if our_ip {
 								flow = ddtypes.NewTCPAccounting(ip4.SrcIP, ip4.DstIP, tcp.SrcPort, tcp.DstPort, idle, func() {
+									flow.Lock()
 									flow.Done = true
+									flow.Unlock()
 									d.flows.Expire <- src + "-" + dst
 									log.Printf("%v flow marked for removal.", src+"-"+dst)
 								})
 							} else {
 								flow = ddtypes.NewTCPAccounting(ip4.DstIP, ip4.SrcIP, tcp.DstPort, tcp.SrcPort, idle, func() {
+									flow.Lock()
 									flow.Done = true
+									flow.Unlock()
 									d.flows.Expire <- src + "-" + dst
 									log.Printf("%v flow marked for removal.", src+"-"+dst)
 								})
@@ -249,7 +253,9 @@ func (d *DatadogSniffer) Sniff() error {
 
 							//set timer
 							timebombs[src+"-"+dst] = time.AfterFunc(ttl, func() {
+								flow.Lock()
 								flow.Done = true
+								flow.Unlock()
 								d.flows.Expire <- src + "-" + dst
 								delete(timebombs, src+"-"+dst)
 							})
