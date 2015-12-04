@@ -28,6 +28,7 @@ type TCPAccounting struct {
 	Last      uint64
 	TS, TSecr uint32
 	Seen      map[uint32]bool
+	IdleTTL   time.Duration
 	Timed     map[TCPKey]int64
 	Done      bool
 	Sampled   uint64
@@ -45,7 +46,7 @@ type FlowMap struct {
 
 // New creates a new stream.  It's called whenever the assembler sees a stream
 // it isn't currently following.
-func NewTCPAccounting(src net.IP, dst net.IP, sport layers.TCPPort, dport layers.TCPPort, d time.Duration, cb func()) *TCPAccounting {
+func NewTCPAccounting(src net.IP, dst net.IP, sport layers.TCPPort, dport layers.TCPPort, ttl time.Duration) *TCPAccounting {
 	//log.Printf("new stream %v:%v started", net, transport)
 	t := &TCPAccounting{
 		Dst:     dst,
@@ -64,7 +65,7 @@ func NewTCPAccounting(src net.IP, dst net.IP, sport layers.TCPPort, dport layers
 		Done:    false,
 		Seen:    make(map[uint32]bool),
 		Timed:   make(map[TCPKey]int64),
-		Alive:   time.AfterFunc(d, cb),
+		IdleTTL: ttl,
 	}
 
 	return t
