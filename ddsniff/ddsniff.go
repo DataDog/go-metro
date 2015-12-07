@@ -164,7 +164,7 @@ func (d *DatadogSniffer) Sniff() error {
 
 	var byteCount int64
 
-	timebombs := make(map[string]*time.Timer)
+	timebombs := ddtypes.NewTimedMap()
 
 	quit := false
 	for !quit {
@@ -252,13 +252,13 @@ func (d *DatadogSniffer) Sniff() error {
 							// flows actually get reported.
 
 							//set timer
-							timebombs[src+"-"+dst] = time.AfterFunc(ttl, func() {
+							timebombs.Add(src+"-"+dst, time.AfterFunc(ttl, func() {
 								flow.Lock()
 								flow.Done = true
 								flow.Unlock()
 								d.flows.Expire <- src + "-" + dst
-								delete(timebombs, src+"-"+dst)
-							})
+								timebombs.Delete(src + "-" + dst)
+							}))
 						}
 
 						tcp_payload_sz := uint32(ip4.Length) - uint32((ip4.IHL+tcp.DataOffset)*4)

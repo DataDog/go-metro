@@ -37,12 +37,6 @@ type TCPAccounting struct {
 	Alive     *time.Timer
 }
 
-type FlowMap struct {
-	sync.RWMutex
-	Map    map[string]*TCPAccounting
-	Expire chan string
-}
-
 // New creates a new stream.  It's called whenever the assembler sees a stream
 // it isn't currently following.
 func NewTCPAccounting(src net.IP, dst net.IP, sport layers.TCPPort, dport layers.TCPPort, d time.Duration, cb func()) *TCPAccounting {
@@ -68,6 +62,50 @@ func NewTCPAccounting(src net.IP, dst net.IP, sport layers.TCPPort, dport layers
 	}
 
 	return t
+}
+
+type TimedMap struct {
+	sync.RWMutex
+	Map map[string]*time.Timer
+}
+
+func NewTimedMap() *TimedMap {
+	t := &TimedMap{
+		Map: make(map[string]*time.Timer),
+	}
+	return t
+}
+
+func (tb *TimedMap) Add(key string, t *time.Timer) {
+	tb.Lock()
+	tb.Map[key] = t
+	tb.Unlock()
+}
+
+func (tb *TimedMap) Get(key string) (*time.Timer, bool) {
+	tb.RLock()
+	v, e := tb.Map[key]
+	tb.RUnlock()
+	return v, e
+}
+
+func (tb *TimedMap) Exists(key string) bool {
+	tb.RLock()
+	_, e := tb.Map[key]
+	tb.RUnlock()
+	return e
+}
+
+func (tb *TimedMap) Delete(key string) {
+	tb.Lock()
+	delete(tb.Map, key)
+	tb.Unlock()
+}
+
+type FlowMap struct {
+	sync.RWMutex
+	Map    map[string]*TCPAccounting
+	Expire chan string
 }
 
 func NewFlowMap() *FlowMap {
