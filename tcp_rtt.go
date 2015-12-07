@@ -20,28 +20,22 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/Datadog/dd-tcp-rtt/ddsniff"
+	"github.com/Datadog/dd-tcp-rtt/ddtypes"
 	"github.com/google/gopacket/pcap"
 )
 
-var snaplen = flag.Int("sz", 65536, "SnapLen for pcap packet capture")
 var filter = flag.String("f", "tcp", "BPF filter for pcap")
-var soften = flag.Bool("st", false, "Soften RTTM")
+var soften = flag.Bool("st", true, "Soften RTTM")
 var logAllPackets = flag.Bool("v", false, "Log whenever we see a packet")
-var getMinRTT = flag.Bool("m", false, "Return the minimum RTT we have for a given connection.")
-var packetCount = flag.Int("c", -1, `Quit after processing this many packets. If negative, ad infinitum.
-If specified together with the 't' flag, which happens first will end execution`)
-var sniffTime = flag.Int("t", -1, `Quit after processing packets for this many seconds. If negative or zero, ad infinitum.
-If specified together with the 'c' flag, which happens first will end execution`)
-var expiration_TTL = flag.Int("ttl", 60, `TTL after flow ends - after this time it will be flushed.`)
-var idle_TTL = flag.Int("idle", 300, `TTL a flow can remain idle - after this time it will be flushed.`)
-var statsd_ip = flag.String("r", "127.0.0.1", "IP address to the stats service")
-var statsd_port = flag.Int("p", 8125, "Port to the stats service.")
+var cfg = flag.String("cfg", "/etc/dd-agent/checks.d/dd-tcp-rtt.yaml", "YAML configuration file.")
 
 type arrayFlags []string
 
@@ -54,11 +48,22 @@ func (i *arrayFlags) Set(value string) error {
 	return nil
 }
 
-var myInterfaces arrayFlags
-
 func main() {
-	flag.Var(&myInterfaces, "iface", "Interface we wish to sniff from.")
 	flag.Parse()
+
+	//Parse config
+	filename, _ := filepath.Abs(*cfg)
+
+	yamlFile, err := ioutil.ReadFile(filename)
+	if err != nil {
+		log.Fatal("Error reading configuration file: ", err)
+	}
+
+	var cfg ddtypes.RTTConfig
+	err = cfg.Parse(yamlFile)
+	if err != nil {
+		log.Fatal("Error parsing configuration file: ", err)
+	}
 
 	//Install signal handler
 	signal_chan := make(chan os.Signal, 1)
@@ -105,11 +110,11 @@ func main() {
 	}
 
 	sniffers := make([]*ddsniff.DatadogSniffer, 0)
-	for i := range myInterfaces {
+	for i := range cfg.Configs {
 		for j := range ifaces {
-			if ifaces[j].Name == myInterfaces[i] {
-				log.Printf("Will attempt sniffing off interface %q", myInterfaces[i])
-				rttsniffer := ddsniff.NewDatadogSniffer(myInterfaces[i], *snaplen, *filter, *expiration_TTL, *idle_TTL, *statsd_ip, int32(*statsd_port))
+			if ifaces[j].Name == cfg.Configs[i].Interface {
+				log.Printf("Will attempt sniffing off interface %q", cfg.Configs[i].Interface)
+				rttsniffer := ddsniff.NewDatadogSniffer(cfg.Instance, cfg.Configs[i], *filter)
 				sniffers = append(sniffers, rttsniffer)
 			}
 		}
