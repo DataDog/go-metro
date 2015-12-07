@@ -17,6 +17,7 @@ type Client struct {
 	port   int32
 	sleep  int32
 	flows  *ddtypes.FlowMap
+	tags   []string
 	t      tomb.Tomb
 }
 
@@ -25,7 +26,7 @@ const (
 	Statsd_sleep   = 30
 )
 
-func NewClient(ip net.IP, port int32, sleep int32, flows *ddtypes.FlowMap) *Client {
+func NewClient(ip net.IP, port int32, sleep int32, flows *ddtypes.FlowMap, tags []string) *Client {
 	cli, err := statsd.NewBuffered(net.JoinHostPort(ip.String(), strconv.Itoa(int(port))), Statsd_bufflen)
 	if err != nil {
 		cli = nil
@@ -37,6 +38,7 @@ func NewClient(ip net.IP, port int32, sleep int32, flows *ddtypes.FlowMap) *Clie
 		port:   port,
 		sleep:  sleep,
 		flows:  flows,
+		tags:   tags,
 	}
 	r.t.Go(r.Report)
 	return r
@@ -67,7 +69,10 @@ func (r *Client) Report() error {
 					value_last := float64(flow.Last) * float64(time.Nanosecond) / float64(time.Millisecond)
 					value_min := float64(flow.Min) * float64(time.Nanosecond) / float64(time.Millisecond)
 					value_max := float64(flow.Max) * float64(time.Nanosecond) / float64(time.Millisecond)
+
 					tags := []string{"link:" + flow.Src.String() + "-" + flow.Dst.String()}
+					tags = append(tags, r.tags...)
+
 					err := r.client.Gauge("system.net.tcp.rtt.avg", value, tags, 1)
 					if err != nil {
 						log.Printf("There was an issue reporting the avg RTT metric: %v", err)

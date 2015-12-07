@@ -31,6 +31,7 @@ type DatadogSniffer struct {
 	statsd_port int32
 	flows       *ddtypes.FlowMap
 	reporter    *reporter.Client
+	config      ddtypes.Config
 	t           tomb.Tomb
 }
 
@@ -46,8 +47,9 @@ func NewDatadogSniffer(instcfg ddtypes.InstanceConfig, cfg ddtypes.Config, filte
 		statsd_ip:   instcfg.Statsd_IP,
 		statsd_port: int32(instcfg.Statsd_port),
 		flows:       ddtypes.NewFlowMap(),
+		config:      cfg,
 	}
-	d.reporter = reporter.NewClient(net.ParseIP(d.statsd_ip), d.statsd_port, reporter.Statsd_sleep, d.flows)
+	d.reporter = reporter.NewClient(net.ParseIP(d.statsd_ip), d.statsd_port, reporter.Statsd_sleep, d.flows, d.config.Tags)
 	d.t.Go(d.Sniff)
 
 	return d
@@ -130,6 +132,10 @@ func (d *DatadogSniffer) Sniff() error {
 			}
 		}
 	}
+	for i := range d.config.Ips {
+		hosts = append(hosts, fmt.Sprintf("host %s", d.config.Ips[i]))
+	}
+
 	bpf_filter := strings.Join(hosts, " or ")
 
 	d.Filter += " and not host 127.0.0.1"
