@@ -224,23 +224,23 @@ func (d *DatadogSniffer) Sniff() error {
 						flow, exists := d.flows.Get(src + "-" + dst)
 						if exists == false {
 							// TCPAccounting objects self-expire if they are inactive for a period of time >idle
-							// FIXME: refactor this
+							cleanup := func() {
+								flow.Lock()
+								flow.Done = true
+								flow.Unlock()
+								t, err := timebombs.Get(src + "-" + dst)
+								if err == true {
+									t.Stop()
+								}
+								timebombs.Delete(src + "-" + dst)
+								d.flows.Expire <- src + "-" + dst
+								log.Printf("%v flow marked for removal.", src+"-"+dst)
+							}
+
 							if our_ip {
-								flow = ddtypes.NewTCPAccounting(ip4.SrcIP, ip4.DstIP, tcp.SrcPort, tcp.DstPort, idle, func() {
-									flow.Lock()
-									flow.Done = true
-									flow.Unlock()
-									d.flows.Expire <- src + "-" + dst
-									log.Printf("%v flow marked for removal.", src+"-"+dst)
-								})
+								flow = ddtypes.NewTCPAccounting(ip4.SrcIP, ip4.DstIP, tcp.SrcPort, tcp.DstPort, idle, cleanup)
 							} else {
-								flow = ddtypes.NewTCPAccounting(ip4.DstIP, ip4.SrcIP, tcp.DstPort, tcp.SrcPort, idle, func() {
-									flow.Lock()
-									flow.Done = true
-									flow.Unlock()
-									d.flows.Expire <- src + "-" + dst
-									log.Printf("%v flow marked for removal.", src+"-"+dst)
-								})
+								flow = ddtypes.NewTCPAccounting(ip4.DstIP, ip4.SrcIP, tcp.DstPort, tcp.SrcPort, idle, cleanup)
 							}
 							flow.Lock()
 							d.flows.Add(src+"-"+dst, flow)
