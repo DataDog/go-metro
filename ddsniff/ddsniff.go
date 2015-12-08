@@ -261,6 +261,7 @@ func (d *DatadogSniffer) Sniff() error {
 							timebombs.Add(src+"-"+dst, time.AfterFunc(ttl, func() {
 								flow.Lock()
 								flow.Done = true
+								flow.Alive.Stop()
 								flow.Unlock()
 								d.flows.Expire <- src + "-" + dst
 								timebombs.Delete(src + "-" + dst)
