@@ -14,6 +14,10 @@ type TCPKey struct {
 	TS  uint32
 }
 
+const (
+	CHAN_DEPTH = 10
+)
+
 // scanner handles scanning a single IP address.
 type TCPAccounting struct {
 	// destination, gateway (if applicable), and soruce IP addresses to use.
@@ -34,12 +38,13 @@ type TCPAccounting struct {
 	Seq       uint32
 	NextSeq   uint32
 	LastSz    uint32
+	Expire    *chan string
 	Alive     *time.Timer
 }
 
 // New creates a new stream.  It's called whenever the assembler sees a stream
 // it isn't currently following.
-func NewTCPAccounting(src net.IP, dst net.IP, sport layers.TCPPort, dport layers.TCPPort, d time.Duration, cb func()) *TCPAccounting {
+func NewTCPAccounting(src net.IP, dst net.IP, sport layers.TCPPort, dport layers.TCPPort, d time.Duration, expire *chan string) *TCPAccounting {
 	//log.Printf("new stream %v:%v started", net, transport)
 	t := &TCPAccounting{
 		Dst:     dst,
@@ -58,10 +63,22 @@ func NewTCPAccounting(src net.IP, dst net.IP, sport layers.TCPPort, dport layers
 		Done:    false,
 		Seen:    make(map[uint32]bool),
 		Timed:   make(map[TCPKey]int64),
-		Alive:   time.AfterFunc(d, cb),
+		Expire:  expire,
+		Alive:   nil,
 	}
-
 	return t
+}
+
+func (t *TCPAccounting) SetExpiration(ttl time.Duration, expkey string) {
+	if t.Alive != nil {
+		t.Alive.Stop()
+	}
+	t.Alive = time.AfterFunc(ttl, func() {
+		t.Lock()
+		t.Done = true
+		t.Unlock()
+		*t.Expire <- expkey
+	})
 }
 
 type TimedMap struct {
@@ -111,7 +128,7 @@ type FlowMap struct {
 func NewFlowMap() *FlowMap {
 	m := &FlowMap{
 		Map:    make(map[string]*TCPAccounting),
-		Expire: make(chan string),
+		Expire: make(chan string, CHAN_DEPTH),
 	}
 	return m
 }
@@ -126,6 +143,11 @@ func (f *FlowMap) Get(key string) (*TCPAccounting, bool) {
 	f.RLock()
 	v, e := f.Map[key]
 	f.RUnlock()
+	return v, e
+}
+
+func (f *FlowMap) GetUnsafe(key string) (*TCPAccounting, bool) {
+	v, e := f.Map[key]
 	return v, e
 }
 
