@@ -50,19 +50,23 @@ func (r *Client) Stop() error {
 }
 
 func (r *Client) Report() error {
-	done := false
 	defer r.client.Close()
 
 	log.Printf("Started reporting.")
 
-	report := int32(0)
+	ticker := time.NewTicker(time.Duration(r.sleep) * time.Second)
+	done := false
 	for !done {
-		if report == 0 {
-			for k := range r.flows.FlowMapKeyIterator() {
-				flow, e := r.flows.Get(k)
-				flow.RLock()
+		select {
+		case key := <-r.flows.Expire:
+			r.flows.Delete(key)
+			log.Printf("Flow with key %v expired.", key)
+		case <-ticker.C:
+			r.flows.Lock()
+			for k := range r.flows.Map {
+				flow, e := r.flows.GetUnsafe(k)
+				flow.Lock()
 				if e && flow.Sampled > 0 {
-
 					success := true
 					value := float64(flow.SRTT) * float64(time.Nanosecond) / float64(time.Millisecond)
 					value_jitter := float64(flow.Jitter) * float64(time.Nanosecond) / float64(time.Millisecond)
@@ -114,30 +118,13 @@ func (r *Client) Report() error {
 						log.Printf("Reported on: %v", k)
 					}
 				}
-				flow.RUnlock()
+				flow.Unlock()
 			}
-		}
-
-		//expire old flows...
-		expire := true
-		for expire {
-			select {
-			case key := <-r.flows.Expire:
-				r.flows.Delete(key)
-				log.Printf("Flow with key %v expired.", key)
-			default:
-				expire = false
-			}
-		}
-
-		select {
+			r.flows.Unlock()
 		case <-r.t.Dying():
 			log.Printf("Done reporting.")
-			return nil
-		case _ = <-time.After(1 * time.Second):
+			done = true
 		}
-		report++
-		report = report % r.sleep
 	}
 
 	return nil

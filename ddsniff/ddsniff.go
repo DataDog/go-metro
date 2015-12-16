@@ -170,8 +170,6 @@ func (d *DatadogSniffer) Sniff() error {
 
 	var byteCount int64
 
-	timebombs := ddtypes.NewTimedMap()
-
 	quit := false
 	for !quit {
 
@@ -224,26 +222,15 @@ func (d *DatadogSniffer) Sniff() error {
 						flow, exists := d.flows.Get(src + "-" + dst)
 						if exists == false {
 							// TCPAccounting objects self-expire if they are inactive for a period of time >idle
-							cleanup := func() {
-								flow.Lock()
-								flow.Done = true
-								flow.Unlock()
-								t, err := timebombs.Get(src + "-" + dst)
-								if err == true {
-									t.Stop()
-								}
-								timebombs.Delete(src + "-" + dst)
-								d.flows.Expire <- src + "-" + dst
-								log.Printf("%v flow marked for removal.", src+"-"+dst)
-							}
 
 							if our_ip {
-								flow = ddtypes.NewTCPAccounting(ip4.SrcIP, ip4.DstIP, tcp.SrcPort, tcp.DstPort, idle, cleanup)
+								flow = ddtypes.NewTCPAccounting(ip4.SrcIP, ip4.DstIP, tcp.SrcPort, tcp.DstPort, idle, &d.flows.Expire)
 							} else {
-								flow = ddtypes.NewTCPAccounting(ip4.DstIP, ip4.SrcIP, tcp.DstPort, tcp.SrcPort, idle, cleanup)
+								flow = ddtypes.NewTCPAccounting(ip4.DstIP, ip4.SrcIP, tcp.DstPort, tcp.SrcPort, idle, &d.flows.Expire)
 							}
 							flow.Lock()
 							d.flows.Add(src+"-"+dst, flow)
+							flow.SetExpiration(idle, src+"-"+dst)
 						} else {
 							//flow still alive - reset timer
 							flow.Lock()
@@ -251,21 +238,15 @@ func (d *DatadogSniffer) Sniff() error {
 						}
 
 						if d.Exp_ttl > 0 && tcp.ACK && tcp.FIN && !flow.Done {
-							ttl := time.Duration(d.Exp_ttl * int(time.Second))
+							exp_ttl := time.Duration(d.Exp_ttl * int(time.Second))
 
 							// Here we clean up flows that have expired by the book - that is, we have seen
 							// the TCP stream come to an end FIN/ACK and have kept these around so short-lived
 							// flows actually get reported.
 
 							//set timer
-							timebombs.Add(src+"-"+dst, time.AfterFunc(ttl, func() {
-								flow.Lock()
-								flow.Done = true
-								flow.Alive.Stop()
-								flow.Unlock()
-								d.flows.Expire <- src + "-" + dst
-								timebombs.Delete(src + "-" + dst)
-							}))
+							flow.Done = true
+							flow.SetExpiration(exp_ttl, src+"-"+dst)
 						}
 
 						tcp_payload_sz := uint32(ip4.Length) - uint32((ip4.IHL+tcp.DataOffset)*4)
