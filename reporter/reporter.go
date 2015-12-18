@@ -22,7 +22,7 @@ type Client struct {
 }
 
 const (
-	Statsd_bufflen = 4
+	Statsd_bufflen = 5
 	Statsd_sleep   = 30
 )
 
