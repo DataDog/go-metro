@@ -1,4 +1,4 @@
-package reporter
+package main
 
 import (
 	"gopkg.in/tomb.v2"
@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/DataDog/datadog-go/statsd"
-	"github.com/DataDog/dd-tcp-rtt/ddtypes"
 	log "github.com/Sirupsen/logrus"
 )
 
@@ -16,7 +15,7 @@ type Client struct {
 	ip     net.IP
 	port   int32
 	sleep  int32
-	flows  *ddtypes.FlowMap
+	flows  *FlowMap
 	tags   []string
 	t      tomb.Tomb
 }
@@ -26,11 +25,12 @@ const (
 	Statsd_sleep   = 30
 )
 
-func NewClient(ip net.IP, port int32, sleep int32, flows *ddtypes.FlowMap, tags []string) *Client {
+func NewClient(ip net.IP, port int32, sleep int32, flows *FlowMap, tags []string) (*Client, error) {
 	cli, err := statsd.NewBuffered(net.JoinHostPort(ip.String(), strconv.Itoa(int(port))), Statsd_bufflen)
 	if err != nil {
 		cli = nil
 		log.Errorf("Error instantiating stats Statter: %v", err)
+		return nil, err
 	}
 
 	r := &Client{
@@ -41,7 +41,7 @@ func NewClient(ip net.IP, port int32, sleep int32, flows *ddtypes.FlowMap, tags 
 		tags:   tags,
 	}
 	r.t.Go(r.Report)
-	return r
+	return r, nil
 }
 
 func (r *Client) Stop() error {

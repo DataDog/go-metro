@@ -1,4 +1,4 @@
-package ddtypes
+package main
 
 import (
 	"math"
@@ -20,7 +20,7 @@ const (
 
 // scanner handles scanning a single IP address.
 type TCPAccounting struct {
-	// destination, gateway (if applicable), and soruce IP addresses to use.
+	// destination, gateway (if applicable), and source IP addresses to use.
 	Dst, Src     net.IP
 	Dport, Sport layers.TCPPort
 

@@ -26,9 +26,8 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
-	"github.com/DataDog/dd-tcp-rtt/ddsniff"
-	"github.com/DataDog/dd-tcp-rtt/ddtypes"
 	log "github.com/Sirupsen/logrus"
 	"github.com/google/gopacket/pcap"
 )
@@ -48,9 +47,13 @@ func (i *arrayFlags) Set(value string) error {
 	return nil
 }
 
-func initLogging(level string) {
+func initLogging(file *os.File, level string) {
 
-	log.SetOutput(os.Stderr)
+	if file != nil {
+		log.SetOutput(file)
+	} else {
+		log.SetOutput(os.Stderr)
+	}
 
 	switch {
 	case strings.EqualFold(level, "debug"):
@@ -78,14 +81,26 @@ func main() {
 		log.Fatalf("Error reading configuration file: %s", err)
 	}
 
-	var cfg ddtypes.RTTConfig
+	var cfg RTTConfig
 	err = cfg.Parse(yamlFile)
 	if err != nil {
 		log.Fatalf("Error parsing configuration file: %s ", err)
 	}
 
 	//set logging
-	initLogging(cfg.InitConf.Log_level)
+	var f *os.File = nil
+	if cfg.InitConf.Log_to_file {
+		f, err = os.OpenFile("dd-rtt.log", os.O_APPEND|os.O_CREATE|os.O_RDWR, 0666)
+		if err != nil {
+			fmt.Printf("error opening file: %v", err)
+			f = nil
+		} else {
+			// don't forget to close it
+			defer f.Close()
+		}
+	}
+
+	initLogging(f, cfg.InitConf.Log_level)
 
 	//Install signal handler
 	signal_chan := make(chan os.Signal, 1)
@@ -131,19 +146,34 @@ func main() {
 		log.Fatalf("Error getting interface details: %s", err)
 	}
 
-	sniffers := make([]*ddsniff.DatadogSniffer, 0)
+	sniffers := make([]*DatadogSniffer, 0)
 	for i := range cfg.Configs {
 		for j := range ifaces {
 			if ifaces[j].Name == cfg.Configs[i].Interface {
 				log.Infof("Will attempt sniffing off interface %q", cfg.Configs[i].Interface)
-				rttsniffer := ddsniff.NewDatadogSniffer(cfg.InitConf, cfg.Configs[i], *filter)
-				sniffers = append(sniffers, rttsniffer)
+				rttsniffer, err := NewDatadogSniffer(cfg.InitConf, cfg.Configs[i], *filter)
+				if err == nil {
+					sniffers = append(sniffers, rttsniffer)
+					rttsniffer.Start()
+				} else {
+					log.Errorf("Unable to instantiate sniffer for interface %q", cfg.Configs[i].Interface)
+				}
 			}
 		}
 	}
 
 	if len(sniffers) == 0 {
-		log.Fatalf("No sniffers available, baling out (please check your privileges).")
+		log.Fatalf("No sniffers available, baling out (please check your configuration and privileges).")
+	}
+
+	//Check all sniffers are up and running or quit.
+	log.Debug("Waiting for sniffers to start...")
+	time.Sleep(time.Second)
+	for i := range sniffers {
+		running := sniffers[i].Running()
+		if !running {
+			log.Fatalf("Unable to start sniffer for interface: %q (please check your configuration and privileges).", sniffers[i].Iface)
+		}
 	}
 
 	quit := false
