@@ -27,8 +27,6 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/DataDog/dd-tcp-rtt/ddsniff"
-	"github.com/DataDog/dd-tcp-rtt/ddtypes"
 	log "github.com/Sirupsen/logrus"
 	"github.com/google/gopacket/pcap"
 )
@@ -78,7 +76,7 @@ func main() {
 		log.Fatalf("Error reading configuration file: %s", err)
 	}
 
-	var cfg ddtypes.RTTConfig
+	var cfg RTTConfig
 	err = cfg.Parse(yamlFile)
 	if err != nil {
 		log.Fatalf("Error parsing configuration file: %s ", err)
@@ -131,12 +129,12 @@ func main() {
 		log.Fatalf("Error getting interface details: %s", err)
 	}
 
-	sniffers := make([]*ddsniff.DatadogSniffer, 0)
+	sniffers := make([]*DatadogSniffer, 0)
 	for i := range cfg.Configs {
 		for j := range ifaces {
 			if ifaces[j].Name == cfg.Configs[i].Interface {
 				log.Infof("Will attempt sniffing off interface %q", cfg.Configs[i].Interface)
-				rttsniffer := ddsniff.NewDatadogSniffer(cfg.InitConf, cfg.Configs[i], *filter)
+				rttsniffer := NewDatadogSniffer(cfg.InitConf, cfg.Configs[i], *filter)
 				sniffers = append(sniffers, rttsniffer)
 			}
 		}

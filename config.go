@@ -1,4 +1,4 @@
-package ddtypes
+package main
 
 import (
 	"errors"

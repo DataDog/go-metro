@@ -1,4 +1,4 @@
-package ddsniff
+package main
 
 import (
 	"bytes"
@@ -12,8 +12,6 @@ import (
 
 	"gopkg.in/tomb.v2"
 
-	"github.com/DataDog/dd-tcp-rtt/ddtypes"
-	"github.com/DataDog/dd-tcp-rtt/reporter"
 	log "github.com/Sirupsen/logrus"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
@@ -29,13 +27,13 @@ type DatadogSniffer struct {
 	Soften      bool
 	statsd_ip   string
 	statsd_port int32
-	flows       *ddtypes.FlowMap
-	reporter    *reporter.Client
-	config      ddtypes.Config
+	flows       *FlowMap
+	reporter    *Client
+	config      Config
 	t           tomb.Tomb
 }
 
-func NewDatadogSniffer(instcfg ddtypes.InitConfig, cfg ddtypes.Config, filter string) *DatadogSniffer {
+func NewDatadogSniffer(instcfg InitConfig, cfg Config, filter string) *DatadogSniffer {
 	//log.Printf("new stream %v:%v started", net, transport)
 	d := &DatadogSniffer{
 		Iface:       cfg.Interface,
@@ -46,10 +44,10 @@ func NewDatadogSniffer(instcfg ddtypes.InitConfig, cfg ddtypes.Config, filter st
 		Soften:      false,
 		statsd_ip:   instcfg.Statsd_IP,
 		statsd_port: int32(instcfg.Statsd_port),
-		flows:       ddtypes.NewFlowMap(),
+		flows:       NewFlowMap(),
 		config:      cfg,
 	}
-	d.reporter = reporter.NewClient(net.ParseIP(d.statsd_ip), d.statsd_port, reporter.Statsd_sleep, d.flows, d.config.Tags)
+	d.reporter = NewClient(net.ParseIP(d.statsd_ip), d.statsd_port, Statsd_sleep, d.flows, d.config.Tags)
 	d.t.Go(d.Sniff)
 
 	return d
@@ -96,7 +94,7 @@ func (d *DatadogSniffer) Sniff() error {
 	// Set up pcap packet capture
 	inactive, err := pcap.NewInactiveHandle(d.Iface)
 	if err != nil {
-		d.reporter.Stop()
+		d.Stop()
 		log.Fatalf("error creating inactive handle: %s", err)
 	}
 	defer inactive.CleanUp()
@@ -113,7 +111,7 @@ func (d *DatadogSniffer) Sniff() error {
 
 	handle, err := inactive.Activate()
 	if err != nil {
-		d.reporter.Stop()
+		d.Stop()
 		log.Fatalf("error opening pcap handle: %s", err)
 	}
 
@@ -224,9 +222,9 @@ func (d *DatadogSniffer) Sniff() error {
 							// TCPAccounting objects self-expire if they are inactive for a period of time >idle
 
 							if our_ip {
-								flow = ddtypes.NewTCPAccounting(ip4.SrcIP, ip4.DstIP, tcp.SrcPort, tcp.DstPort, idle, &d.flows.Expire)
+								flow = NewTCPAccounting(ip4.SrcIP, ip4.DstIP, tcp.SrcPort, tcp.DstPort, idle, &d.flows.Expire)
 							} else {
-								flow = ddtypes.NewTCPAccounting(ip4.DstIP, ip4.SrcIP, tcp.DstPort, tcp.SrcPort, idle, &d.flows.Expire)
+								flow = NewTCPAccounting(ip4.DstIP, ip4.SrcIP, tcp.DstPort, tcp.SrcPort, idle, &d.flows.Expire)
 							}
 							flow.Lock()
 							d.flows.Add(src+"-"+dst, flow)
@@ -251,7 +249,7 @@ func (d *DatadogSniffer) Sniff() error {
 
 						tcp_payload_sz := uint32(ip4.Length) - uint32((ip4.IHL+tcp.DataOffset)*4)
 						if our_ip && tcp_payload_sz > 0 {
-							var t ddtypes.TCPKey
+							var t TCPKey
 							//get the TS
 							ts, _, _ := GetTimestamps(&tcp)
 							t.TS = ts
@@ -261,7 +259,7 @@ func (d *DatadogSniffer) Sniff() error {
 							flow.Timed[t] = ci.Timestamp.UnixNano()
 
 						} else if !our_ip {
-							var t ddtypes.TCPKey
+							var t TCPKey
 							//get the TS
 							_, tsecr, _ := GetTimestamps(&tcp)
 							t.TS = tsecr
@@ -307,5 +305,5 @@ func (d *DatadogSniffer) Sniff() error {
 	}
 
 	//Shutdown reported thread
-	return d.reporter.Stop()
+	return d.Stop()
 }
