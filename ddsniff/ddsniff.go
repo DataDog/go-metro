@@ -12,8 +12,8 @@ import (
 
 	"gopkg.in/tomb.v2"
 
-	"github.com/Datadog/dd-tcp-rtt/ddtypes"
-	"github.com/Datadog/dd-tcp-rtt/reporter"
+	"github.com/DataDog/dd-tcp-rtt/ddtypes"
+	"github.com/DataDog/dd-tcp-rtt/reporter"
 	log "github.com/Sirupsen/logrus"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"

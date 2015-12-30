@@ -27,8 +27,8 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/Datadog/dd-tcp-rtt/ddsniff"
-	"github.com/Datadog/dd-tcp-rtt/ddtypes"
+	"github.com/DataDog/dd-tcp-rtt/ddsniff"
+	"github.com/DataDog/dd-tcp-rtt/ddtypes"
 	log "github.com/Sirupsen/logrus"
 	"github.com/google/gopacket/pcap"
 )

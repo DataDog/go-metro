@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/DataDog/datadog-go/statsd"
-	"github.com/Datadog/dd-tcp-rtt/ddtypes"
+	"github.com/DataDog/dd-tcp-rtt/ddtypes"
 	log "github.com/Sirupsen/logrus"
 )
 
