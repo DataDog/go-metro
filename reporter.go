@@ -21,12 +21,12 @@ type Client struct {
 }
 
 const (
-	Statsd_bufflen = 5
-	Statsd_sleep   = 30
+	statsdBufflen = 5
+	statsdSleep   = 30
 )
 
 func NewClient(ip net.IP, port int32, sleep int32, flows *FlowMap, tags []string) (*Client, error) {
-	cli, err := statsd.NewBuffered(net.JoinHostPort(ip.String(), strconv.Itoa(int(port))), Statsd_bufflen)
+	cli, err := statsd.NewBuffered(net.JoinHostPort(ip.String(), strconv.Itoa(int(port))), statsdBufflen)
 	if err != nil {
 		cli = nil
 		log.Errorf("Error instantiating stats Statter: %v", err)

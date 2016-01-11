@@ -48,42 +48,42 @@ func NewDatadogDecoder() *DatadogDecoder {
 // specifically pass in.  This trade-off can be quite useful, though, in
 // high-throughput situations.
 type DatadogSniffer struct {
-	Iface       string
-	Snaplen     int
-	Filter      string
-	Exp_ttl     int
-	Idle_ttl    int
-	Soften      bool
-	statsd_ip   string
-	statsd_port int32
-	pcap_handle *pcap.Handle
-	decoder     *DatadogDecoder
-	host_ips    map[string]bool
-	flows       *FlowMap
-	reporter    *Client
-	config      Config
-	t           tomb.Tomb
+	Iface      string
+	Snaplen    int
+	Filter     string
+	ExpTTL     int
+	IdleTTL    int
+	Soften     bool
+	statsdIP   string
+	statsdPort int32
+	pcapHandle *pcap.Handle
+	decoder    *DatadogDecoder
+	hostIPs    map[string]bool
+	flows      *FlowMap
+	reporter   *Client
+	config     Config
+	t          tomb.Tomb
 }
 
 func NewDatadogSniffer(instcfg InitConfig, cfg Config, filter string) (*DatadogSniffer, error) {
 	//log.Printf("new stream %v:%v started", net, transport)
 	d := &DatadogSniffer{
-		Iface:       cfg.Interface,
-		Snaplen:     instcfg.Snaplen,
-		Filter:      filter,
-		Exp_ttl:     instcfg.ExpTTL,
-		Idle_ttl:    instcfg.IdleTTL,
-		Soften:      false,
-		statsd_ip:   instcfg.Statsd_IP,
-		statsd_port: int32(instcfg.Statsd_port),
-		pcap_handle: nil,
-		host_ips:    make(map[string]bool),
-		flows:       NewFlowMap(),
-		config:      cfg,
+		Iface:      cfg.Interface,
+		Snaplen:    instcfg.Snaplen,
+		Filter:     filter,
+		ExpTTL:     instcfg.ExpTTL,
+		IdleTTL:    instcfg.IdleTTL,
+		Soften:     false,
+		statsdIP:   instcfg.StatsdIP,
+		statsdPort: int32(instcfg.StatsdPort),
+		pcapHandle: nil,
+		hostIPs:    make(map[string]bool),
+		flows:      NewFlowMap(),
+		config:     cfg,
 	}
 	d.decoder = NewDatadogDecoder()
 	var err error
-	d.reporter, err = NewClient(net.ParseIP(d.statsd_ip), d.statsd_port, Statsd_sleep, d.flows, d.config.Tags)
+	d.reporter, err = NewClient(net.ParseIP(d.statsdIP), d.statsdPort, statsdSleep, d.flows, d.config.Tags)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +91,7 @@ func NewDatadogSniffer(instcfg InitConfig, cfg Config, filter string) (*DatadogS
 	return d, nil
 }
 
-func read_uint32(data []byte) (ret uint32) {
+func readUint32(data []byte) (ret uint32) {
 	buf := bytes.NewBuffer(data)
 	binary.Read(buf, binary.BigEndian, &ret)
 	return
@@ -100,8 +100,8 @@ func read_uint32(data []byte) (ret uint32) {
 func GetTimestamps(tcp *layers.TCP) (uint32, uint32, error) {
 	for i := range tcp.Options {
 		if tcp.Options[i].OptionType == 8 {
-			ts := read_uint32(tcp.Options[i].OptionData[:4])
-			tsecr := read_uint32(tcp.Options[i].OptionData[4:])
+			ts := readUint32(tcp.Options[i].OptionData[:4])
+			tsecr := readUint32(tcp.Options[i].OptionData[4:])
 			return ts, tsecr, nil
 		}
 	}
@@ -127,7 +127,7 @@ func (d *DatadogSniffer) Running() bool {
 }
 
 func (d *DatadogSniffer) SetPcapHandle(handle *pcap.Handle) {
-	d.pcap_handle = handle
+	d.pcapHandle = handle
 }
 
 func (d *DatadogSniffer) handlePacket(data []byte, ci *gopacket.CaptureInfo) error {
@@ -151,11 +151,11 @@ func (d *DatadogSniffer) handlePacket(data []byte, ci *gopacket.CaptureInfo) err
 			if foundNetLayer && foundIPv4Layer {
 				//do we have this flow? Build key
 				var src, dst string
-				our_ip := d.host_ips[d.decoder.ip4.SrcIP.String()]
+				ourIP := d.hostIPs[d.decoder.ip4.SrcIP.String()]
 
 				// consider us always the SRC (this will help us keep just one tag for
 				// all comms between two ip's
-				if our_ip {
+				if ourIP {
 					src = net.JoinHostPort(d.decoder.ip4.SrcIP.String(), strconv.Itoa(int(d.decoder.tcp.SrcPort)))
 					dst = net.JoinHostPort(d.decoder.ip4.DstIP.String(), strconv.Itoa(int(d.decoder.tcp.DstPort)))
 				} else {
@@ -163,11 +163,11 @@ func (d *DatadogSniffer) handlePacket(data []byte, ci *gopacket.CaptureInfo) err
 					dst = net.JoinHostPort(d.decoder.ip4.SrcIP.String(), strconv.Itoa(int(d.decoder.tcp.SrcPort)))
 				}
 
-				idle := time.Duration(d.Idle_ttl * int(time.Second))
+				idle := time.Duration(d.IdleTTL * int(time.Second))
 				flow, exists := d.flows.Get(src + "-" + dst)
 				if exists == false {
 					// TCPAccounting objects self-expire if they are inactive for a period of time >idle
-					if our_ip {
+					if ourIP {
 						flow = NewTCPAccounting(d.decoder.ip4.SrcIP, d.decoder.ip4.DstIP, d.decoder.tcp.SrcPort, d.decoder.tcp.DstPort, idle, &d.flows.Expire)
 					} else {
 						flow = NewTCPAccounting(d.decoder.ip4.DstIP, d.decoder.ip4.SrcIP, d.decoder.tcp.DstPort, d.decoder.tcp.SrcPort, idle, &d.flows.Expire)
@@ -181,8 +181,8 @@ func (d *DatadogSniffer) handlePacket(data []byte, ci *gopacket.CaptureInfo) err
 					flow.Alive.Reset(idle)
 				}
 
-				if d.Exp_ttl > 0 && d.decoder.tcp.ACK && d.decoder.tcp.FIN && !flow.Done {
-					exp_ttl := time.Duration(d.Exp_ttl * int(time.Second))
+				if d.ExpTTL > 0 && d.decoder.tcp.ACK && d.decoder.tcp.FIN && !flow.Done {
+					expTTL := time.Duration(d.ExpTTL * int(time.Second))
 
 					// Here we clean up flows that have expired by the book - that is, we have seen
 					// the TCP stream come to an end FIN/ACK and have kept these around so short-lived
@@ -190,11 +190,11 @@ func (d *DatadogSniffer) handlePacket(data []byte, ci *gopacket.CaptureInfo) err
 
 					//set timer
 					flow.Done = true
-					flow.SetExpiration(exp_ttl, src+"-"+dst)
+					flow.SetExpiration(expTTL, src+"-"+dst)
 				}
 
 				tcp_payload_sz := uint32(d.decoder.ip4.Length) - uint32((d.decoder.ip4.IHL+d.decoder.tcp.DataOffset)*4)
-				if our_ip && tcp_payload_sz > 0 {
+				if ourIP && tcp_payload_sz > 0 {
 					var t TCPKey
 					//get the TS
 					ts, _, _ := GetTimestamps(&d.decoder.tcp)
@@ -204,7 +204,7 @@ func (d *DatadogSniffer) handlePacket(data []byte, ci *gopacket.CaptureInfo) err
 					//insert or update
 					flow.Timed[t] = ci.Timestamp.UnixNano()
 
-				} else if !our_ip {
+				} else if !ourIP {
 					var t TCPKey
 					//get the TS
 					_, tsecr, _ := GetTimestamps(&d.decoder.tcp)
@@ -237,16 +237,12 @@ func (d *DatadogSniffer) SniffLive() {
 	quit := false
 	for !quit {
 
-		// To speed things up, we're also using the ZeroCopy method for
-		// reading packet data.  This method is faster than the normal
-		// ReadPacketData, but the returned bytes in 'data' are
-		// invalidated by any subsequent ZeroCopyReadPacketData call.
-		// Note that tcpassembly is entirely compatible with this packet
-		// reading method.  This is another trade-off which might be
-		// appropriate for high-throughput sniffing:  it avoids a packet
-		// copy, but its cost is much more careful handling of the
-		// resulting byte slice.
-		data, ci, err := d.pcap_handle.ReadPacketData()
+		// Although desirable we're currently unable to use the ZeroCopy method
+		// for reading packet data. Unfortunately successive calls invalidate the
+		// data slice we're operating on. Giving place to bad results.
+		// Keep this in mind as a viable optimization for the future:
+		//   - packet retrieval using  ZeroCopyReadPacketData.
+		data, ci, err := d.pcapHandle.ReadPacketData()
 
 		if err == nil {
 			d.handlePacket(data, &ci)
@@ -262,7 +258,7 @@ func (d *DatadogSniffer) SniffLive() {
 }
 
 func (d *DatadogSniffer) SniffOffline() {
-	packetSource := gopacket.NewPacketSource(d.pcap_handle, d.pcap_handle.LinkType())
+	packetSource := gopacket.NewPacketSource(d.pcapHandle, d.pcapHandle.LinkType())
 
 	for packet := range packetSource.Packets() {
 		//Grab Packet CaptureInfo metadata
@@ -280,11 +276,11 @@ func (d *DatadogSniffer) SniffOffline() {
 
 func (d *DatadogSniffer) Sniff() error {
 
-	if d.pcap_handle == nil {
+	if d.pcapHandle == nil {
 
 		log.Infof("starting capture on interface %q", d.Iface)
 
-		if d.Iface != file_interface {
+		if d.Iface != fileInterface {
 			// Set up pcap packet capture
 			inactive, err := pcap.NewInactiveHandle(d.Iface)
 			if err != nil {
@@ -312,7 +308,7 @@ func (d *DatadogSniffer) Sniff() error {
 				d.die(err)
 				return err
 			}
-			d.pcap_handle = handle
+			d.pcapHandle = handle
 		} else {
 			handle, err := pcap.OpenOffline(d.config.Pcap)
 			if err != nil {
@@ -321,7 +317,7 @@ func (d *DatadogSniffer) Sniff() error {
 				d.die(err)
 				return err
 			}
-			d.pcap_handle = handle
+			d.pcapHandle = handle
 		}
 	}
 
@@ -330,29 +326,29 @@ func (d *DatadogSniffer) Sniff() error {
 		log.Fatalf("Error getting interface details: %s", err)
 	}
 
-	ifc_found := false
-	iface_details := make([]pcap.Interface, len(ifaces)-1)
+	ifaceFound := false
+	ifaceDetails := make([]pcap.Interface, len(ifaces)-1)
 	for i := range ifaces {
 		if ifaces[i].Name == d.Iface {
-			iface_details[i] = ifaces[i]
-			ifc_found = true
+			ifaceDetails[i] = ifaces[i]
+			ifaceFound = true
 		}
 	}
 
-	if !ifc_found && d.Iface != file_interface {
+	if !ifaceFound && d.Iface != fileInterface {
 		log.Fatalf("Could not find interface details for: %s", d.Iface)
 	}
 
 	// we need to identify if we're the source/destination
 	hosts := make([]string, 0)
-	for i := range iface_details {
-		for j := range iface_details[i].Addresses {
-			ip_str := iface_details[i].Addresses[j].IP.String()
-			if strings.Contains(ip_str, "::") {
-				log.Infof("IPv6 currently unsupported ignoring: %s", ip_str)
+	for i := range ifaceDetails {
+		for j := range ifaceDetails[i].Addresses {
+			ipStr := ifaceDetails[i].Addresses[j].IP.String()
+			if strings.Contains(ipStr, "::") {
+				log.Infof("IPv6 currently unsupported ignoring: %s", ipStr)
 			} else {
-				hosts = append(hosts, fmt.Sprintf("host %s", ip_str))
-				d.host_ips[ip_str] = true
+				hosts = append(hosts, fmt.Sprintf("host %s", ipStr))
+				d.hostIPs[ipStr] = true
 			}
 		}
 	}
@@ -360,20 +356,20 @@ func (d *DatadogSniffer) Sniff() error {
 		hosts = append(hosts, fmt.Sprintf("host %s", d.config.Ips[i]))
 	}
 
-	bpf_filter := strings.Join(hosts, " or ")
+	bpfFilter := strings.Join(hosts, " or ")
 
 	d.Filter += " and not host 127.0.0.1"
 	if len(hosts) > 0 {
-		d.Filter += " and " + " (" + bpf_filter + ")"
+		d.Filter += " and " + " (" + bpfFilter + ")"
 	}
 
 	log.Infof("Setting BPF filter: %s", d.Filter)
-	if err := d.pcap_handle.SetBPFFilter(d.Filter); err != nil {
+	if err := d.pcapHandle.SetBPFFilter(d.Filter); err != nil {
 		log.Fatalf("error setting BPF filter: %s", err)
 	}
 
 	log.Infof("reading in packets")
-	if d.Iface == file_interface {
+	if d.Iface == fileInterface {
 		d.SniffOffline()
 	} else {
 		d.SniffLive()

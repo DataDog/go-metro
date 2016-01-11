@@ -5,16 +5,16 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
-const file_interface = "file"
+const fileInterface = "file"
 
 type InitConfig struct {
-	Snaplen     int    `yaml:"snaplen"`
-	IdleTTL     int    `yaml:"idle_ttl"`
-	ExpTTL      int    `yaml:"expired_ttl"`
-	Statsd_IP   string `yaml:"statsd_ip"`
-	Statsd_port int    `yaml:"statsd_port"`
-	Log_to_file bool   `yaml:"log_to_file"`
-	Log_level   string `yaml:"log_level"`
+	Snaplen    int    `yaml:"snaplen"`
+	IdleTTL    int    `yaml:"idle_ttl"`
+	ExpTTL     int    `yaml:"expired_ttl"`
+	StatsdIP   string `yaml:"statsd_ip"`
+	StatsdPort int    `yaml:"statsd_port"`
+	LogToFile  bool   `yaml:"log_to_file"`
+	LogLevel   string `yaml:"log_level"`
 }
 
 type Config struct {
@@ -40,7 +40,7 @@ func (c *RTTConfig) Parse(data []byte) error {
 	for i := range c.Configs {
 		if c.Configs[i].Interface == "" {
 			return errors.New("Error parsing configuration - empty iface field.")
-		} else if c.Configs[i].Interface == file_interface && c.Configs[i].Pcap == "" {
+		} else if c.Configs[i].Interface == fileInterface && c.Configs[i].Pcap == "" {
 			return errors.New("Error parsing configuration - empty pcap field for file interface.")
 		}
 	}

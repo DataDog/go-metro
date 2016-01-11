@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-const good_cfg = `
+const goodCfg = `
 init_config:
     snaplen: 512
     idle_ttl: 300
@@ -20,7 +20,7 @@ config:
   ips: []
 `
 
-const good_file_cfg = `
+const goodFileCfg = `
 init_config:
     snaplen: 512
     idle_ttl: 300
@@ -37,7 +37,7 @@ config:
   ips: []
 `
 
-const bad_file_cfg = `
+const badFileCfg = `
 init_config:
     snaplen: 512
     idle_ttl: 300
@@ -53,7 +53,7 @@ config:
   ips: []
 `
 
-const bad_cfg = `
+const badCfg = `
 init_config:
     snaplen: 512
     idle_ttl: 300
@@ -66,7 +66,7 @@ init_config:
 config:
 `
 
-const bad_interface_cfg = `
+const badInterfaceCfg = `
 init_config:
     snaplen: 512
     idle_ttl: 300
@@ -84,7 +84,7 @@ config:
 
 func TestParseConfig(t *testing.T) {
 	var cfg RTTConfig
-	err := cfg.Parse([]byte(good_cfg))
+	err := cfg.Parse([]byte(goodCfg))
 	if err != nil {
 		t.Fatalf("RTTConfig.parse expected == nil, got %q", err)
 	}
@@ -92,7 +92,7 @@ func TestParseConfig(t *testing.T) {
 
 func TestParseBadConfig(t *testing.T) {
 	var cfg RTTConfig
-	err := cfg.Parse([]byte(bad_cfg))
+	err := cfg.Parse([]byte(badCfg))
 	if err == nil {
 		t.Fatalf("RTTConfig.parse expected error, got %q", err)
 	}
@@ -100,7 +100,7 @@ func TestParseBadConfig(t *testing.T) {
 
 func TestBadInterfaceSniffer(t *testing.T) {
 	var cfg RTTConfig
-	err := cfg.Parse([]byte(bad_interface_cfg))
+	err := cfg.Parse([]byte(badInterfaceCfg))
 	if err != nil {
 		t.Fatalf("RTTConfig.parse expected == %q, got %q", nil, err)
 	}
@@ -116,7 +116,7 @@ func TestBadInterfaceSniffer(t *testing.T) {
 
 func TestSnifferFromBadFile(t *testing.T) {
 	var cfg RTTConfig
-	err := cfg.Parse([]byte(bad_file_cfg))
+	err := cfg.Parse([]byte(badFileCfg))
 	if err == nil {
 		t.Fatalf("RTTConfig.parse expected error, got %v", nil)
 	}
@@ -124,7 +124,7 @@ func TestSnifferFromBadFile(t *testing.T) {
 
 func TestSnifferFromFile(t *testing.T) {
 	var cfg RTTConfig
-	err := cfg.Parse([]byte(good_file_cfg))
+	err := cfg.Parse([]byte(goodFileCfg))
 	if err != nil {
 		t.Fatalf("RTTConfig.parse expected == %q, got %q", nil, err)
 	}
@@ -132,7 +132,7 @@ func TestSnifferFromFile(t *testing.T) {
 	rttsniffer, err := NewDatadogSniffer(cfg.InitConf, cfg.Configs[0], "tcp")
 
 	//set artificial host_ip 192.168.1.116 (from pcap)
-	rttsniffer.host_ips["192.168.1.116"] = true
+	rttsniffer.hostIPs["192.168.1.116"] = true
 	//sniff
 	err = rttsniffer.Sniff()
 	if err != nil {

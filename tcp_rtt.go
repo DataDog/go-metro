@@ -1,20 +1,7 @@
-// Copyright 2012 Google, Inc. All rights reserved.
-//
 // Use of this source code is governed by a BSD-style license
 // that can be found in the LICENSE file in the root of the source
 // tree.
 
-// synscan implements a TCP syn scanner on top of pcap.
-// It's more complicated than arpscan, since it has to handle sending packets
-// outside the local network, requiring some routing and ARP work.
-//
-// Since this is just an example program, it aims for simplicity over
-// performance.  It doesn't handle sending packets very quickly, it scans IPs
-// serially instead of in parallel, and uses gopacket.Packet instead of
-// gopacket.DecodingLayerParser for packet processing.  We also make use of very
-// simple timeout logic with time.Since.
-//
-// Making it blazingly fast is left as an exercise to the reader.
 package main
 
 import (
@@ -89,7 +76,7 @@ func main() {
 
 	//set logging
 	var f *os.File = nil
-	if cfg.InitConf.Log_to_file {
+	if cfg.InitConf.LogToFile {
 		f, err = os.OpenFile("dd-rtt.log", os.O_APPEND|os.O_CREATE|os.O_RDWR, 0666)
 		if err != nil {
 			fmt.Printf("error opening file: %v", err)
@@ -100,40 +87,40 @@ func main() {
 		}
 	}
 
-	initLogging(f, cfg.InitConf.Log_level)
+	initLogging(f, cfg.InitConf.LogLevel)
 
 	//Install signal handler
-	signal_chan := make(chan os.Signal, 1)
-	signal.Notify(signal_chan,
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan,
 		syscall.SIGHUP,
 		syscall.SIGINT,
 		syscall.SIGTERM,
 		syscall.SIGQUIT)
 
-	exit_chan := make(chan bool)
+	exitChan := make(chan bool)
 	go func() {
 		for {
-			s := <-signal_chan
+			s := <-signalChan
 			switch s {
 			// kill -SIGHUP XXXX
 			case syscall.SIGHUP:
 				log.Warn("hungup")
-				exit_chan <- true
+				exitChan <- true
 
 				// kill -SIGINT XXXX or Ctrl+c
 			case syscall.SIGINT:
 				log.Warn("sig int caught, shutting down.")
-				exit_chan <- true
+				exitChan <- true
 
 				// kill -SIGTERM XXXX
 			case syscall.SIGTERM:
 				log.Warn("force stop")
-				exit_chan <- true
+				exitChan <- true
 
 				// kill -SIGQUIT XXXX
 			case syscall.SIGQUIT:
 				log.Warn("stop and core dump")
-				exit_chan <- true
+				exitChan <- true
 
 			default:
 				fmt.Println("Unknown signal.")
@@ -178,7 +165,7 @@ func main() {
 
 	quit := false
 	for !quit {
-		msg := <-exit_chan
+		msg := <-exitChan
 		switch msg {
 		case true:
 			quit = true
