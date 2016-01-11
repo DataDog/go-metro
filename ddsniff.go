@@ -295,12 +295,8 @@ func (d *DatadogSniffer) Sniff() error {
 			inactive.SetPromisc(false)
 			inactive.SetTimeout(time.Second)
 
-			// Maybe we should make the timestamp source selectable - Not all OS will allow that.
-			//ts_sources := inactive.SupportedTimestamps()
-			//for i := range ts_sources {
-			//	log.Printf("TS source: %v:%v", ts_sources[i], ts_sources[i].String())
-			//}
-
+			// TODO: Make the timestamp source selectable - Not all OS will allow that.
+			//       call SupportedTimestamps() on handle to check what's available
 			handle, err := inactive.Activate()
 			if err != nil {
 				log.Errorf("Unable to activate %q", d.Iface)
