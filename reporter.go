@@ -49,8 +49,13 @@ func (r *Client) Stop() error {
 	return r.t.Wait()
 }
 
-func (r *Client) submit(key, metric string, value float64, tags *[]string) error {
-	err := r.client.Gauge(metric, value, *tags, 1)
+func (r *Client) submit(key, metric string, value float64, tags *[]string, asHistogram bool) error {
+	var err error
+	if asHistogram {
+		err = r.client.Histogram(metric, value, *tags, 1)
+	} else {
+		err = r.client.Gauge(metric, value, *tags, 1)
+	}
 	if err != nil {
 		log.WithFields(log.Fields{
 			"key":    key,
@@ -100,27 +105,27 @@ func (r *Client) Report() error {
 					tags = append(tags, r.tags...)
 
 					metric := "system.net.tcp.rtt.avg"
-					err := r.submit(k, metric, value, &tags)
+					err := r.submit(k, metric, value, &tags, false)
 					if err != nil {
 						success = false
 					}
 					metric = "system.net.tcp.rtt.jitter"
-					err = r.submit(k, metric, value_jitter, &tags)
+					err = r.submit(k, metric, value_jitter, &tags, false)
 					if err != nil {
 						success = false
 					}
 					metric = "system.net.tcp.rtt.last"
-					err = r.submit(k, metric, value_last, &tags)
+					err = r.submit(k, metric, value_last, &tags, true)
 					if err != nil {
 						success = false
 					}
 					metric = "system.net.tcp.rtt.min"
-					err = r.submit(k, metric, value_min, &tags)
+					err = r.submit(k, metric, value_min, &tags, false)
 					if err != nil {
 						success = false
 					}
 					metric = "system.net.tcp.rtt.max"
-					err = r.submit(k, metric, value_max, &tags)
+					err = r.submit(k, metric, value_max, &tags, false)
 					if err != nil {
 						success = false
 					}
