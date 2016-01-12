@@ -6,13 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"gopkg.in/tomb.v2"
 
-	log "github.com/Sirupsen/logrus"
+	log "github.com/cihub/seelog"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcap"
@@ -66,7 +67,6 @@ type DatadogSniffer struct {
 }
 
 func NewDatadogSniffer(instcfg InitConfig, cfg Config, filter string) (*DatadogSniffer, error) {
-	//log.Printf("new stream %v:%v started", net, transport)
 	d := &DatadogSniffer{
 		Iface:      cfg.Interface,
 		Snaplen:    instcfg.Snaplen,
@@ -319,7 +319,8 @@ func (d *DatadogSniffer) Sniff() error {
 
 	ifaces, err := pcap.FindAllDevs()
 	if err != nil {
-		log.Fatalf("Error getting interface details: %s", err)
+		log.Criticalf("Error getting interface details: %s", err)
+		os.Exit(1)
 	}
 
 	ifaceFound := false
@@ -332,7 +333,8 @@ func (d *DatadogSniffer) Sniff() error {
 	}
 
 	if !ifaceFound && d.Iface != fileInterface {
-		log.Fatalf("Could not find interface details for: %s", d.Iface)
+		log.Criticalf("Could not find interface details for: %s", d.Iface)
+		os.Exit(1)
 	}
 
 	// we need to identify if we're the source/destination
@@ -361,7 +363,8 @@ func (d *DatadogSniffer) Sniff() error {
 
 	log.Infof("Setting BPF filter: %s", d.Filter)
 	if err := d.pcapHandle.SetBPFFilter(d.Filter); err != nil {
-		log.Fatalf("error setting BPF filter: %s", err)
+		log.Criticalf("error setting BPF filter: %s", err)
+		os.Exit(1)
 	}
 
 	log.Infof("reading in packets")

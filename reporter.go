@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/DataDog/datadog-go/statsd"
-	log "github.com/Sirupsen/logrus"
+	log "github.com/cihub/seelog"
 )
 
 type Client struct {
@@ -57,19 +57,10 @@ func (r *Client) submit(key, metric string, value float64, tags *[]string, asHis
 		err = r.client.Gauge(metric, value, *tags, 1)
 	}
 	if err != nil {
-		log.WithFields(log.Fields{
-			"key":    key,
-			"metric": metric,
-			"err":    err,
-		}).Warningf("There was an issue reporting metric:")
+		log.Infof("There was an issue reporting metric: [%s] %s = %v - error: %v", key, metric, value, err)
 		return err
 	} else {
-		log.WithFields(log.Fields{
-			"key":    key,
-			"metric": metric,
-			"tags":   tags,
-			"value":  value,
-		}).Debug("Reported successfully:")
+		log.Infof("Reported successfully! Metric: [%s] %s = %v - tags: %v", key, metric, value, tags)
 	}
 	return nil
 }
@@ -85,9 +76,7 @@ func (r *Client) Report() error {
 		select {
 		case key := <-r.flows.Expire:
 			r.flows.Delete(key)
-			log.WithFields(log.Fields{
-				"key": key,
-			}).Info("Flow expired.")
+			log.Infof("Flow expired: [%s]", key)
 		case <-ticker.C:
 			r.flows.Lock()
 			for k := range r.flows.Map {
