@@ -5,6 +5,7 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -15,13 +16,30 @@ import (
 	"syscall"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
+	log "github.com/cihub/seelog"
 	"github.com/google/gopacket/pcap"
 )
 
-var filter = flag.String("f", "tcp", "BPF filter for pcap")
+const (
+	defaultConfigFile = "/etc/dd-agent/checks.d/dd-tcp-rtt.yaml"
+	defaultLogFile    = "/var/log/datadog/dd-tcp-rtt.log"
+	defaultBPFFilter  = "tcp"
+	baseFileLogConfig = `
+<seelog minlevel="ddloglevel">
+	<outputs>
+		<rollingfile type="size" filename="ddlogfile" maxsize="100000" maxrolls="5" />
+	</outputs>
+</seelog>`
+	baseStdoLogConfig = `
+<seelog minlevel="ddloglevel">
+	<outputs><console/></outputs>
+</seelog>`
+)
+
+var cfg = flag.String("cfg", defaultConfigFile, "YAML configuration file.")
+var logfile = flag.String("log", defaultLogFile, "Destination log file.")
+var filter = flag.String("f", defaultBPFFilter, "BPF filter for pcap")
 var soften = flag.Bool("st", true, "Soften RTTM")
-var cfg = flag.String("cfg", "/etc/dd-agent/checks.d/dd-tcp-rtt.yaml", "YAML configuration file.")
 
 type arrayFlags []string
 
@@ -34,27 +52,40 @@ func (i *arrayFlags) Set(value string) error {
 	return nil
 }
 
-func initLogging(file *os.File, level string) {
-
-	if file != nil {
-		log.SetOutput(file)
-	} else {
-		log.SetOutput(os.Stderr)
-	}
+func initLogging(to_file bool, level string) {
+	loglevel := "warning"
 
 	switch {
+	case strings.EqualFold(level, "trace"):
+		loglevel = "trace"
 	case strings.EqualFold(level, "debug"):
-		log.SetLevel(log.DebugLevel)
+		loglevel = "debug"
 	case strings.EqualFold(level, "info"):
-		log.SetLevel(log.InfoLevel)
-	case strings.EqualFold(level, "warning"):
-		log.SetLevel(log.WarnLevel)
+		loglevel = "info"
 	case strings.EqualFold(level, "error"):
-		log.SetLevel(log.ErrorLevel)
+		loglevel = "error"
+	case strings.EqualFold(level, "critical"):
+		loglevel = "critical"
+	case strings.EqualFold(level, "warning"):
 	default:
 		log.Infof("Configured log level \"%s\" unknown - defaulting to WARNING level.", level)
-		log.SetLevel(log.WarnLevel)
 	}
+
+	var logConfig []byte
+
+	if to_file {
+		logConfig = bytes.Replace([]byte(baseFileLogConfig), []byte("ddloglevel"), []byte(strings.ToLower(loglevel)), 1)
+		logConfig = bytes.Replace([]byte(logConfig), []byte("ddlogfile"), []byte(*logfile), 1)
+	} else {
+		logConfig = bytes.Replace([]byte(baseStdoLogConfig), []byte("ddloglevel"), []byte(strings.ToLower(loglevel)), 1)
+	}
+	logger, err := log.LoggerFromConfigAsBytes(logConfig)
+	if err != nil {
+		log.Criticalf("Unable to initiate logger: %s", err)
+		os.Exit(1)
+	}
+	log.ReplaceLogger(logger)
+
 }
 
 func main() {
@@ -65,29 +96,23 @@ func main() {
 
 	yamlFile, err := ioutil.ReadFile(filename)
 	if err != nil {
-		log.Fatalf("Error reading configuration file: %s", err)
+		log.Criticalf("Error reading configuration file: %s", err)
+		os.Exit(1)
 	}
 
 	var cfg RTTConfig
 	err = cfg.Parse(yamlFile)
 	if err != nil {
-		log.Fatalf("Error parsing configuration file: %s ", err)
+		log.Criticalf("Error parsing configuration file: %s ", err)
+		os.Exit(1)
 	}
 
 	//set logging
-	var f *os.File = nil
 	if cfg.InitConf.LogToFile {
-		f, err = os.OpenFile("dd-rtt.log", os.O_APPEND|os.O_CREATE|os.O_RDWR, 0666)
-		if err != nil {
-			fmt.Printf("error opening file: %v", err)
-			f = nil
-		} else {
-			// don't forget to close it
-			defer f.Close()
-		}
+		initLogging(true, cfg.InitConf.LogLevel)
+	} else {
+		initLogging(false, cfg.InitConf.LogLevel)
 	}
-
-	initLogging(f, cfg.InitConf.LogLevel)
 
 	//Install signal handler
 	signalChan := make(chan os.Signal, 1)
@@ -130,7 +155,8 @@ func main() {
 
 	ifaces, err := pcap.FindAllDevs()
 	if err != nil {
-		log.Fatalf("Error getting interface details: %s", err)
+		log.Criticalf("Error getting interface details: %s", err)
+		os.Exit(1)
 	}
 
 	sniffers := make([]*DatadogSniffer, 0)
@@ -150,7 +176,8 @@ func main() {
 	}
 
 	if len(sniffers) == 0 {
-		log.Fatalf("No sniffers available, baling out (please check your configuration and privileges).")
+		log.Criticalf("No sniffers available, baling out (please check your configuration and privileges).")
+		os.Exit(1)
 	}
 
 	//Check all sniffers are up and running or quit.
@@ -159,7 +186,8 @@ func main() {
 	for i := range sniffers {
 		running := sniffers[i].Running()
 		if !running {
-			log.Fatalf("Unable to start sniffer for interface: %q (please check your configuration and privileges).", sniffers[i].Iface)
+			log.Criticalf("Unable to start sniffer for interface: %q (please check your configuration and privileges).", sniffers[i].Iface)
+			os.Exit(1)
 		}
 	}
 
