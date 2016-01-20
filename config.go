@@ -21,6 +21,7 @@ type Config struct {
 	Interface string   `yaml:"interface"`
 	Pcap      string   `yaml:"pcap"`
 	Ips       []string `yaml:"ips"`
+	Hosts     []string `yaml:"hosts"`
 	Tags      []string `yaml:"tags"`
 }
 

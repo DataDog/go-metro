@@ -11,3 +11,4 @@ config:
 - interface: en0
   tags: [mytag]
   ips: []
+  hosts: [myhost]

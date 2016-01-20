@@ -60,6 +60,7 @@ type DatadogSniffer struct {
 	pcapHandle *pcap.Handle
 	decoder    *DatadogDecoder
 	hostIPs    map[string]bool
+	nameLookup map[string]string
 	flows      *FlowMap
 	reporter   *Client
 	config     Config
@@ -78,12 +79,13 @@ func NewDatadogSniffer(instcfg InitConfig, cfg Config, filter string) (*DatadogS
 		statsdPort: int32(instcfg.StatsdPort),
 		pcapHandle: nil,
 		hostIPs:    make(map[string]bool),
+		nameLookup: make(map[string]string),
 		flows:      NewFlowMap(),
 		config:     cfg,
 	}
 	d.decoder = NewDatadogDecoder()
 	var err error
-	d.reporter, err = NewClient(net.ParseIP(d.statsdIP), d.statsdPort, statsdSleep, d.flows, d.config.Tags)
+	d.reporter, err = NewClient(net.ParseIP(d.statsdIP), d.statsdPort, statsdSleep, d.flows, d.nameLookup, d.config.Tags)
 	if err != nil {
 		return nil, err
 	}
@@ -338,27 +340,58 @@ func (d *DatadogSniffer) Sniff() error {
 	}
 
 	// we need to identify if we're the source/destination
-	hosts := make([]string, 0)
 	for i := range ifaceDetails {
 		for j := range ifaceDetails[i].Addresses {
 			ipStr := ifaceDetails[i].Addresses[j].IP.String()
 			if strings.Contains(ipStr, "::") {
 				log.Infof("IPv6 currently unsupported ignoring: %s", ipStr)
 			} else {
-				hosts = append(hosts, fmt.Sprintf("host %s", ipStr))
 				d.hostIPs[ipStr] = true
 			}
 		}
 	}
-	for i := range d.config.Ips {
-		hosts = append(hosts, fmt.Sprintf("host %s", d.config.Ips[i]))
+
+	for i := range d.config.Hosts {
+		hostIPs, err := net.LookupHost(d.config.Hosts[i])
+		if err != nil {
+			log.Errorf("Error resolving name for: %s", d.config.Hosts[i])
+			continue
+		}
+		for k := range hostIPs {
+			d.config.Ips = append(d.config.Ips, hostIPs[k])
+			d.nameLookup[hostIPs[k]] = d.config.Hosts[i]
+			log.Infof("%s resolving to: %s", d.config.Hosts[i], hostIPs[k])
+		}
 	}
 
-	bpfFilter := strings.Join(hosts, " or ")
+	hosts := make([]string, 0)
+	for i := range d.config.Ips {
+		hosts = append(hosts, fmt.Sprintf("host %s", d.config.Ips[i]))
+
+		//add posible missing hostnames
+		_, ok := d.nameLookup[d.config.Ips[i]]
+		if !ok {
+			hostnames, err := net.LookupAddr(d.config.Ips[i])
+			if err != nil {
+				log.Errorf("Problem looking up hostnames for: %s", d.config.Ips[i])
+				continue
+			}
+			for j := range hostnames {
+				d.nameLookup[d.config.Ips[i]] = hostnames[j]
+				log.Infof("%s resolving to: %s", hostnames[j], d.config.Ips[i])
+			}
+		}
+
+	}
+
+	bpfFilter := ""
+	if len(hosts) > 0 {
+		bpfFilter = "(" + strings.Join(hosts, " or ") + ")"
+	}
 
 	d.Filter += " and not host 127.0.0.1"
 	if len(hosts) > 0 {
-		d.Filter += " and " + " (" + bpfFilter + ")"
+		d.Filter += " and " + bpfFilter
 	}
 
 	log.Infof("Setting BPF filter: %s", d.Filter)

@@ -17,6 +17,7 @@ type Client struct {
 	sleep  int32
 	flows  *FlowMap
 	tags   []string
+	lookup map[string]string
 	t      tomb.Tomb
 }
 
@@ -25,7 +26,7 @@ const (
 	statsdSleep   = 30
 )
 
-func NewClient(ip net.IP, port int32, sleep int32, flows *FlowMap, tags []string) (*Client, error) {
+func NewClient(ip net.IP, port int32, sleep int32, flows *FlowMap, lookup map[string]string, tags []string) (*Client, error) {
 	cli, err := statsd.NewBuffered(net.JoinHostPort(ip.String(), strconv.Itoa(int(port))), statsdBufflen)
 	if err != nil {
 		cli = nil
@@ -39,6 +40,7 @@ func NewClient(ip net.IP, port int32, sleep int32, flows *FlowMap, tags []string
 		sleep:  sleep,
 		flows:  flows,
 		tags:   tags,
+		lookup: lookup,
 	}
 	r.t.Go(r.Report)
 	return r, nil
@@ -49,12 +51,12 @@ func (r *Client) Stop() error {
 	return r.t.Wait()
 }
 
-func (r *Client) submit(key, metric string, value float64, tags *[]string, asHistogram bool) error {
+func (r *Client) submit(key, metric string, value float64, tags []string, asHistogram bool) error {
 	var err error
 	if asHistogram {
-		err = r.client.Histogram(metric, value, *tags, 1)
+		err = r.client.Histogram(metric, value, tags, 1)
 	} else {
-		err = r.client.Gauge(metric, value, *tags, 1)
+		err = r.client.Gauge(metric, value, tags, 1)
 	}
 	if err != nil {
 		log.Infof("There was an issue reporting metric: [%s] %s = %v - error: %v", key, metric, value, err)
@@ -90,31 +92,40 @@ func (r *Client) Report() error {
 					value_min := float64(flow.Min) * float64(time.Nanosecond) / float64(time.Millisecond)
 					value_max := float64(flow.Max) * float64(time.Nanosecond) / float64(time.Millisecond)
 
-					tags := []string{"link:" + flow.Src.String() + "-" + flow.Dst.String()}
+					srcHost, ok := r.lookup[flow.Src.String()]
+					if !ok {
+						srcHost = flow.Src.String()
+					}
+					dstHost, ok := r.lookup[flow.Dst.String()]
+					if !ok {
+						dstHost = flow.Dst.String()
+					}
+
+					tags := []string{"link:" + srcHost + "-" + dstHost}
 					tags = append(tags, r.tags...)
 
 					metric := "system.net.tcp.rtt.avg"
-					err := r.submit(k, metric, value, &tags, false)
+					err := r.submit(k, metric, value, tags, false)
 					if err != nil {
 						success = false
 					}
 					metric = "system.net.tcp.rtt.jitter"
-					err = r.submit(k, metric, value_jitter, &tags, false)
+					err = r.submit(k, metric, value_jitter, tags, false)
 					if err != nil {
 						success = false
 					}
 					metric = "system.net.tcp.rtt.last"
-					err = r.submit(k, metric, value_last, &tags, true)
+					err = r.submit(k, metric, value_last, tags, true)
 					if err != nil {
 						success = false
 					}
 					metric = "system.net.tcp.rtt.min"
-					err = r.submit(k, metric, value_min, &tags, false)
+					err = r.submit(k, metric, value_min, tags, false)
 					if err != nil {
 						success = false
 					}
 					metric = "system.net.tcp.rtt.max"
-					err = r.submit(k, metric, value_max, &tags, false)
+					err = r.submit(k, metric, value_max, tags, false)
 					if err != nil {
 						success = false
 					}
