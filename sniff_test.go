@@ -83,53 +83,53 @@ config:
 `
 
 func TestParseConfig(t *testing.T) {
-	var cfg RTTConfig
+	var cfg MetroConfig
 	err := cfg.Parse([]byte(goodCfg))
 	if err != nil {
-		t.Fatalf("RTTConfig.parse expected == nil, got %q", err)
+		t.Fatalf("MetroConfig.parse expected == nil, got %q", err)
 	}
 }
 
 func TestParseBadConfig(t *testing.T) {
-	var cfg RTTConfig
+	var cfg MetroConfig
 	err := cfg.Parse([]byte(badCfg))
 	if err == nil {
-		t.Fatalf("RTTConfig.parse expected error, got %q", err)
+		t.Fatalf("MetroConfig.parse expected error, got %q", err)
 	}
 }
 
 func TestBadInterfaceSniffer(t *testing.T) {
-	var cfg RTTConfig
+	var cfg MetroConfig
 	err := cfg.Parse([]byte(badInterfaceCfg))
 	if err != nil {
-		t.Fatalf("RTTConfig.parse expected == %q, got %q", nil, err)
+		t.Fatalf("MetroConfig.parse expected == %q, got %q", nil, err)
 	}
 
-	rttsniffer, err := NewDatadogSniffer(cfg.InitConf, cfg.Configs[0], "tcp")
+	rttsniffer, err := NewMetroSniffer(cfg.InitConf, cfg.Configs[0], "tcp")
 
 	//sniff
 	err = rttsniffer.Sniff()
 	if err == nil {
-		t.Fatalf("RTTConfig.parse expected error, but got %q", err)
+		t.Fatalf("MetroConfig.parse expected error, but got %q", err)
 	}
 }
 
 func TestSnifferFromBadFile(t *testing.T) {
-	var cfg RTTConfig
+	var cfg MetroConfig
 	err := cfg.Parse([]byte(badFileCfg))
 	if err == nil {
-		t.Fatalf("RTTConfig.parse expected error, got %v", nil)
+		t.Fatalf("MetroConfig.parse expected error, got %v", nil)
 	}
 }
 
 func TestSnifferFromFile(t *testing.T) {
-	var cfg RTTConfig
+	var cfg MetroConfig
 	err := cfg.Parse([]byte(goodFileCfg))
 	if err != nil {
-		t.Fatalf("RTTConfig.parse expected == %q, got %q", nil, err)
+		t.Fatalf("MetroConfig.parse expected == %q, got %q", nil, err)
 	}
 
-	rttsniffer, err := NewDatadogSniffer(cfg.InitConf, cfg.Configs[0], "tcp")
+	rttsniffer, err := NewMetroSniffer(cfg.InitConf, cfg.Configs[0], "tcp")
 
 	//set artificial host_ip 192.168.1.116 (from pcap)
 	rttsniffer.hostIPs["192.168.1.116"] = true
