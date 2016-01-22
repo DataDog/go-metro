@@ -18,11 +18,14 @@ type InitConfig struct {
 }
 
 type Config struct {
-	Interface string   `yaml:"interface"`
-	Pcap      string   `yaml:"pcap"`
-	Ips       []string `yaml:"ips"`
-	Hosts     []string `yaml:"hosts"`
-	Tags      []string `yaml:"tags"`
+	Interface      string   `yaml:"interface"`
+	Pcap           string   `yaml:"pcap"`
+	Sample         bool     `yaml:"sample"`
+	SampleDuration int      `yaml:"sample_duration"`
+	SampleInterval int      `yaml:"sample_interval"`
+	Ips            []string `yaml:"ips"`
+	Hosts          []string `yaml:"hosts"`
+	Tags           []string `yaml:"tags"`
 }
 
 type RTTConfig struct {

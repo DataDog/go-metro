@@ -61,6 +61,7 @@ type DatadogSniffer struct {
 	decoder    *DatadogDecoder
 	hostIPs    map[string]bool
 	nameLookup map[string]string
+	sampleTS   int64
 	flows      *FlowMap
 	reporter   *Client
 	config     Config
@@ -80,6 +81,7 @@ func NewDatadogSniffer(instcfg InitConfig, cfg Config, filter string) (*DatadogS
 		pcapHandle: nil,
 		hostIPs:    make(map[string]bool),
 		nameLookup: make(map[string]string),
+		sampleTS:   time.Now().UnixNano(),
 		flows:      NewFlowMap(),
 		config:     cfg,
 	}
@@ -246,9 +248,24 @@ func (d *DatadogSniffer) SniffLive() {
 		//   - packet retrieval using  ZeroCopyReadPacketData.
 		data, ci, err := d.pcapHandle.ReadPacketData()
 
-		if err == nil {
-			d.handlePacket(data, &ci)
+		if d.config.Sample {
+			ts := ci.Timestamp.UnixNano()
+			if ts < d.sampleTS {
+				//don't sleep to empty pcap buffer
+			} else if ts > d.sampleTS+(int64(d.config.SampleDuration)*time.Second.Nanoseconds()) {
+				log.Debugf("Updating next sample period: %v", time.Unix(0, ts))
+				d.sampleTS = time.Now().UnixNano() + (int64(d.config.SampleInterval) * time.Second.Nanoseconds())
+			} else {
+				if err == nil {
+					d.handlePacket(data, &ci)
+				}
+			}
+		} else {
+			if err == nil {
+				d.handlePacket(data, &ci)
+			}
 		}
+
 		select {
 		case <-d.t.Dying():
 			log.Infof("Done sniffing.")
