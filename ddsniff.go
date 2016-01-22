@@ -49,23 +49,24 @@ func NewDatadogDecoder() *DatadogDecoder {
 // specifically pass in.  This trade-off can be quite useful, though, in
 // high-throughput situations.
 type DatadogSniffer struct {
-	Iface      string
-	Snaplen    int
-	Filter     string
-	ExpTTL     int
-	IdleTTL    int
-	Soften     bool
-	statsdIP   string
-	statsdPort int32
-	pcapHandle *pcap.Handle
-	decoder    *DatadogDecoder
-	hostIPs    map[string]bool
-	nameLookup map[string]string
-	sampleTS   int64
-	flows      *FlowMap
-	reporter   *Client
-	config     Config
-	t          tomb.Tomb
+	Iface          string
+	Snaplen        int
+	Filter         string
+	ExpTTL         int
+	IdleTTL        int
+	Soften         bool
+	statsdIP       string
+	statsdPort     int32
+	pcapHandle     *pcap.Handle
+	decoder        *DatadogDecoder
+	hostIPs        map[string]bool
+	nameLookup     map[string]string
+	sampleTS       int64
+	sampleDeadline int64
+	flows          *FlowMap
+	reporter       *Client
+	config         Config
+	t              tomb.Tomb
 }
 
 func NewDatadogSniffer(instcfg InitConfig, cfg Config, filter string) (*DatadogSniffer, error) {
@@ -85,7 +86,9 @@ func NewDatadogSniffer(instcfg InitConfig, cfg Config, filter string) (*DatadogS
 		flows:      NewFlowMap(),
 		config:     cfg,
 	}
+	d.sampleDeadline = d.sampleTS + int64(d.config.SampleDuration)*time.Second.Nanoseconds()
 	d.decoder = NewDatadogDecoder()
+
 	var err error
 	d.reporter, err = NewClient(net.ParseIP(d.statsdIP), d.statsdPort, statsdSleep, d.flows, d.nameLookup, d.config.Tags)
 	if err != nil {
@@ -252,9 +255,10 @@ func (d *DatadogSniffer) SniffLive() {
 			ts := ci.Timestamp.UnixNano()
 			if ts < d.sampleTS {
 				//don't sleep to empty pcap buffer
-			} else if ts > d.sampleTS+(int64(d.config.SampleDuration)*time.Second.Nanoseconds()) {
+			} else if ts > d.sampleDeadline {
 				log.Debugf("Updating next sample period: %v", time.Unix(0, ts))
-				d.sampleTS = time.Now().UnixNano() + (int64(d.config.SampleInterval) * time.Second.Nanoseconds())
+				d.sampleTS = d.sampleDeadline + (int64(d.config.SampleInterval) * time.Second.Nanoseconds())
+				d.sampleDeadline = d.sampleTS + (int64(d.config.SampleDuration) * time.Second.Nanoseconds())
 			} else {
 				if err == nil {
 					d.handlePacket(data, &ci)
