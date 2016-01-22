@@ -1,4 +1,4 @@
-# dd-tcp-rtt
+# go-metro
 
 ## Requirements
 This go package requires the great [gopacket](https://github.com/google/gopacket) - it provides awesome packet decoding and pcap integration in Go.
@@ -14,9 +14,8 @@ communication we use the TS and TSecr values in the TCP Options, if available, t
 * Clone this repo into your `$GOPATH/src`
 ```bash
 cd $GOPATH
-go get -v github.com/google/gopacket
-go get -v github.com/google/dd_tcp_rtt
-go install github.com/Datadog/dd-tcp-rtt
+go get -a -v github.com/DataDog/go-metro
+go install github.com/Datadog/go-metro
 ```
 * You should now have the executable in `$GOPATH/bin`.
 * Have fun!
@@ -24,7 +23,7 @@ go install github.com/Datadog/dd-tcp-rtt
 ### Linux tip
 You don't need to run this as `root`, you can set CAP_NET_RAW capabilities on the executable - you will need sudo rights to do that though.
 ```bash
-sudo setcap cap_net_raw+ep $GOPATH/bin/dd-tcp-rtt
+sudo setcap cap_net_raw+ep $GOPATH/bin/go-metro
 ```
 And you're good to go, no need to be *super* anymore!
 
