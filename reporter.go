@@ -89,8 +89,6 @@ func (r *Client) Report() error {
 					value := float64(flow.SRTT) * float64(time.Nanosecond) / float64(time.Millisecond)
 					value_jitter := float64(flow.Jitter) * float64(time.Nanosecond) / float64(time.Millisecond)
 					value_last := float64(flow.Last) * float64(time.Nanosecond) / float64(time.Millisecond)
-					value_min := float64(flow.Min) * float64(time.Nanosecond) / float64(time.Millisecond)
-					value_max := float64(flow.Max) * float64(time.Nanosecond) / float64(time.Millisecond)
 
 					srcHost, ok := r.lookup[flow.Src.String()]
 					if !ok {
@@ -115,17 +113,7 @@ func (r *Client) Report() error {
 						success = false
 					}
 					metric = "system.net.tcp.rtt.last"
-					err = r.submit(k, metric, value_last, tags, true)
-					if err != nil {
-						success = false
-					}
-					metric = "system.net.tcp.rtt.min"
-					err = r.submit(k, metric, value_min, tags, false)
-					if err != nil {
-						success = false
-					}
-					metric = "system.net.tcp.rtt.max"
-					err = r.submit(k, metric, value_max, tags, false)
+					err = r.submit(k, metric, value_last, tags, false)
 					if err != nil {
 						success = false
 					}
