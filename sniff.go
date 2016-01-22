@@ -19,7 +19,7 @@ import (
 	"github.com/google/gopacket/pcap"
 )
 
-type DatadogDecoder struct {
+type MetroDecoder struct {
 	eth           layers.Ethernet
 	dot1q         layers.Dot1Q
 	ip4           layers.IPv4
@@ -31,8 +31,8 @@ type DatadogDecoder struct {
 	decoded       []gopacket.LayerType
 }
 
-func NewDatadogDecoder() *DatadogDecoder {
-	d := &DatadogDecoder{
+func NewMetroDecoder() *MetroDecoder {
+	d := &MetroDecoder{
 		decoded: make([]gopacket.LayerType, 0, 4),
 	}
 	d.parser = gopacket.NewDecodingLayerParser(layers.LayerTypeEthernet,
@@ -48,7 +48,7 @@ func NewDatadogDecoder() *DatadogDecoder {
 // but DecodingLayerParser will only handle those packet types we
 // specifically pass in.  This trade-off can be quite useful, though, in
 // high-throughput situations.
-type DatadogSniffer struct {
+type MetroSniffer struct {
 	Iface      string
 	Snaplen    int
 	Filter     string
@@ -58,7 +58,7 @@ type DatadogSniffer struct {
 	statsdIP   string
 	statsdPort int32
 	pcapHandle *pcap.Handle
-	decoder    *DatadogDecoder
+	decoder    *MetroDecoder
 	hostIPs    map[string]bool
 	nameLookup map[string]string
 	sampleTS   int64
@@ -68,8 +68,8 @@ type DatadogSniffer struct {
 	t          tomb.Tomb
 }
 
-func NewDatadogSniffer(instcfg InitConfig, cfg Config, filter string) (*DatadogSniffer, error) {
-	d := &DatadogSniffer{
+func NewMetroSniffer(instcfg InitConfig, cfg Config, filter string) (*MetroSniffer, error) {
+	d := &MetroSniffer{
 		Iface:      cfg.Interface,
 		Snaplen:    instcfg.Snaplen,
 		Filter:     filter,
@@ -85,7 +85,7 @@ func NewDatadogSniffer(instcfg InitConfig, cfg Config, filter string) (*DatadogS
 		flows:      NewFlowMap(),
 		config:     cfg,
 	}
-	d.decoder = NewDatadogDecoder()
+	d.decoder = NewMetroDecoder()
 	var err error
 	d.reporter, err = NewClient(net.ParseIP(d.statsdIP), d.statsdPort, statsdSleep, d.flows, d.nameLookup, d.config.Tags)
 	if err != nil {
@@ -112,29 +112,29 @@ func GetTimestamps(tcp *layers.TCP) (uint32, uint32, error) {
 	return 0, 0, errors.New("No TCP timestamp Options!")
 }
 
-func (d *DatadogSniffer) Start() {
+func (d *MetroSniffer) Start() {
 	d.t.Go(d.Sniff)
 }
 
-func (d *DatadogSniffer) Stop() error {
+func (d *MetroSniffer) Stop() error {
 	d.t.Kill(nil)
 	return d.t.Wait()
 }
 
 //Unexported - we only call this ourselves.
-func (d *DatadogSniffer) die(err error) {
+func (d *MetroSniffer) die(err error) {
 	d.t.Kill(err)
 }
 
-func (d *DatadogSniffer) Running() bool {
+func (d *MetroSniffer) Running() bool {
 	return d.t.Alive()
 }
 
-func (d *DatadogSniffer) SetPcapHandle(handle *pcap.Handle) {
+func (d *MetroSniffer) SetPcapHandle(handle *pcap.Handle) {
 	d.pcapHandle = handle
 }
 
-func (d *DatadogSniffer) handlePacket(data []byte, ci *gopacket.CaptureInfo) error {
+func (d *MetroSniffer) handlePacket(data []byte, ci *gopacket.CaptureInfo) error {
 	err := d.decoder.parser.DecodeLayers(data, &d.decoder.decoded)
 	if err != nil {
 		log.Infof("error decoding packet: %v", err)
@@ -236,7 +236,7 @@ func (d *DatadogSniffer) handlePacket(data []byte, ci *gopacket.CaptureInfo) err
 	return nil
 }
 
-func (d *DatadogSniffer) SniffLive() {
+func (d *MetroSniffer) SniffLive() {
 
 	quit := false
 	for !quit {
@@ -276,7 +276,7 @@ func (d *DatadogSniffer) SniffLive() {
 	}
 }
 
-func (d *DatadogSniffer) SniffOffline() {
+func (d *MetroSniffer) SniffOffline() {
 	packetSource := gopacket.NewPacketSource(d.pcapHandle, d.pcapHandle.LinkType())
 
 	for packet := range packetSource.Packets() {
@@ -293,7 +293,7 @@ func (d *DatadogSniffer) SniffOffline() {
 	}
 }
 
-func (d *DatadogSniffer) Sniff() error {
+func (d *MetroSniffer) Sniff() error {
 
 	if d.pcapHandle == nil {
 

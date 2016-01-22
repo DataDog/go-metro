@@ -28,12 +28,12 @@ type Config struct {
 	Tags           []string `yaml:"tags"`
 }
 
-type RTTConfig struct {
+type MetroConfig struct {
 	InitConf InitConfig `yaml:"init_config"`
 	Configs  []Config   `yaml:"config"`
 }
 
-func (c *RTTConfig) Parse(data []byte) error {
+func (c *MetroConfig) Parse(data []byte) error {
 	if err := yaml.Unmarshal(data, c); err != nil {
 		return err
 	}

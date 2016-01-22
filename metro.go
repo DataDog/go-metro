@@ -21,8 +21,8 @@ import (
 )
 
 const (
-	defaultConfigFile = "/etc/dd-agent/checks.d/dd-tcp-rtt.yaml"
-	defaultLogFile    = "/var/log/datadog/dd-tcp-rtt.log"
+	defaultConfigFile = "/etc/dd-agent/checks.d/go-metro.yaml"
+	defaultLogFile    = "/var/log/datadog/go-metro.log"
 	defaultBPFFilter  = "tcp"
 	baseFileLogConfig = `
 <seelog minlevel="ddloglevel">
@@ -100,7 +100,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	var cfg RTTConfig
+	var cfg MetroConfig
 	err = cfg.Parse(yamlFile)
 	if err != nil {
 		log.Criticalf("Error parsing configuration file: %s ", err)
@@ -159,15 +159,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	sniffers := make([]*DatadogSniffer, 0)
+	sniffers := make([]*MetroSniffer, 0)
 	for i := range cfg.Configs {
 		for j := range ifaces {
 			if ifaces[j].Name == cfg.Configs[i].Interface {
 				log.Infof("Will attempt sniffing off interface %q", cfg.Configs[i].Interface)
-				rttsniffer, err := NewDatadogSniffer(cfg.InitConf, cfg.Configs[i], *filter)
+				metrosniffer, err := NewMetroSniffer(cfg.InitConf, cfg.Configs[i], *filter)
 				if err == nil {
-					sniffers = append(sniffers, rttsniffer)
-					rttsniffer.Start()
+					sniffers = append(sniffers, metrosniffer)
+					metrosniffer.Start()
 				} else {
 					log.Errorf("Unable to instantiate sniffer for interface %q", cfg.Configs[i].Interface)
 				}
