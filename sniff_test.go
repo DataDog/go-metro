@@ -2,6 +2,7 @@ package main
 
 import (
 	"testing"
+	"time"
 )
 
 const goodCfg = `
@@ -34,6 +35,23 @@ config:
 - interface: file
   pcap: test_tcp.pcap
   tags: [mytag]
+  ips: []
+`
+
+const scpFileCfg = `
+init_config:
+    snaplen: 512
+    idle_ttl: 300
+    exp_ttl: 60
+    statsd_ip: 127.0.0.1
+    statsd_port: 8125
+    log_to_file: true
+    log_level: debug
+
+config:
+- interface: file
+  pcap: test_scp.pcap
+  tags: [scp]
   ips: []
 `
 
@@ -149,6 +167,48 @@ func TestSnifferFromFile(t *testing.T) {
 		if e && flow.Sampled > 0 {
 			t.Fatalf("One way HTTP flow can't be sampled for RTT reliably")
 		}
+	}
+
+	if n_flows == 0 {
+		t.Fatalf("Flow was not detected!")
+	}
+}
+
+func TestSnifferFromScp(t *testing.T) {
+	var cfg MetroConfig
+	err := cfg.Parse([]byte(scpFileCfg))
+	if err != nil {
+		t.Fatalf("MetroConfig.parse expected == %q, got %q", nil, err)
+	}
+
+	rttsniffer, err := NewMetroSniffer(cfg.InitConf, cfg.Configs[0], "tcp")
+
+	//set artificial host_ip 10.42.31.222 (from pcap)
+	rttsniffer.hostIPs["10.42.31.222"] = true
+	//sniff
+	err = rttsniffer.Sniff()
+	if err != nil {
+		t.Fatalf("Problem running sniffer expected %v, got %v - cfg %v", nil, err, cfg.Configs[0])
+	}
+
+	n_flows := 0
+	for k := range rttsniffer.flows.FlowMapKeyIterator() {
+		n_flows++
+		flow, e := rttsniffer.flows.Get(k)
+		if flow.Src.String() != "10.42.31.222" {
+			t.Fatalf("Bad Source IP in flow.")
+		}
+		if e && flow.Sampled == 0 {
+			t.Fatalf("outgoing payloaded traffic, we should've sampled!")
+		}
+		value := float64(flow.SRTT) * float64(time.Nanosecond) / float64(time.Millisecond)
+		value_jitter := float64(flow.Jitter) * float64(time.Nanosecond) / float64(time.Millisecond)
+		value_last := float64(flow.Last) * float64(time.Nanosecond) / float64(time.Millisecond)
+
+		t.Logf("samples %d", flow.Sampled)
+		t.Logf("srtt %v", value)
+		t.Logf("jitter %v", value_jitter)
+		t.Logf("last %v", value_last)
 	}
 
 	if n_flows == 0 {
