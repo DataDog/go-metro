@@ -33,7 +33,7 @@ init_config:
 
 config:
 - interface: file
-  pcap: test_tcp.pcap
+  pcap: fixtures/test_tcp.pcap
   tags: [mytag]
   ips: []
 `
@@ -50,7 +50,7 @@ init_config:
 
 config:
 - interface: file
-  pcap: test_scp.pcap
+  pcap: fixtures/test_scp.pcap
   tags: [scp]
   ips: []
 `
