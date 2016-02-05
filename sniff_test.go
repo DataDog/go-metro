@@ -211,7 +211,7 @@ func TestSnifferFromScp(t *testing.T) {
 		t.Logf("last %v", value_last)
 	}
 
-	if n_flows == 0 {
-		t.Fatalf("Flow was not detected!")
+	if n_flows != 1 {
+		t.Fatalf("Incorrect number of flows detected %v - only single flow in source pcap.", n_flows)
 	}
 }
