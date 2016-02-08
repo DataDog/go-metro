@@ -169,8 +169,35 @@ func TestSnifferFromFile(t *testing.T) {
 		}
 	}
 
-	if n_flows == 0 {
-		t.Fatalf("Flow was not detected!")
+	if n_flows != 2 {
+		t.Fatalf("Incorrect number of flows: %v", n_flows)
+	}
+}
+
+func TestSnifferFilter(t *testing.T) {
+	var cfg MetroConfig
+	err := cfg.Parse([]byte(goodFileCfg))
+	if err != nil {
+		t.Fatalf("MetroConfig.parse expected == %q, got %q", nil, err)
+	}
+
+	rttsniffer, err := NewMetroSniffer(cfg.InitConf, cfg.Configs[0], "tcp and host 200.100.200.100")
+
+	//set artificial host_ip 200.100.200.100 (not in pcap)
+	rttsniffer.hostIPs["200.100.200.100"] = true
+	//sniff
+	err = rttsniffer.Sniff()
+	if err != nil {
+		t.Fatalf("Problem running sniffer expected %v, got %v - cfg %v", nil, err, cfg.Configs[0])
+	}
+
+	n_flows := 0
+	for _ = range rttsniffer.flows.FlowMapKeyIterator() {
+		n_flows++
+	}
+
+	if n_flows != 0 {
+		t.Fatalf("Flow incorrectly processed, should have been filtered! %v", n_flows)
 	}
 }
 
@@ -206,9 +233,15 @@ func TestSnifferFromScp(t *testing.T) {
 		value_last := float64(flow.Last) * float64(time.Nanosecond) / float64(time.Millisecond)
 
 		t.Logf("samples %d", flow.Sampled)
+		if flow.Sampled != 95 {
+			t.Fatalf("There are 95 computable samples in the pcap. %v is an incorrect number of samples.", flow.Sampled)
+		}
 		t.Logf("srtt %v", value)
 		t.Logf("jitter %v", value_jitter)
 		t.Logf("last %v", value_last)
+		if value <= 0 || value_jitter <= 0 || value_last <= 0 {
+			t.Fatalf("Computer SRTT, Jitter and last samples should all be >0. Check your logic - values SRRT=%v, Jitter=%v, Last=%v incorrect.", value, value_jitter, value_last)
+		}
 	}
 
 	if n_flows != 1 {

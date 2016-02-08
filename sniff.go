@@ -219,7 +219,7 @@ func (d *MetroSniffer) handlePacket(data []byte, ci *gopacket.CaptureInfo) error
 					t.Seq = d.decoder.tcp.Ack
 
 					if flow.Timed[t] != 0 {
-						if flow.Seen[d.decoder.tcp.Ack] == false && d.decoder.tcp.ACK {
+						if _, ok := flow.Seen[d.decoder.tcp.Ack]; !ok && d.decoder.tcp.ACK {
 							//we can't receive an ACK for packet we haven't seen sent - we're the source
 							rtt := uint64(ci.Timestamp.UnixNano() - flow.Timed[t])
 							flow.CalcSRTT(rtt, d.Soften)
@@ -229,7 +229,7 @@ func (d *MetroSniffer) handlePacket(data []byte, ci *gopacket.CaptureInfo) error
 							flow.Last = rtt
 							flow.Sampled++
 						}
-						flow.Seen[d.decoder.tcp.Ack] = true
+						flow.Seen[d.decoder.tcp.Ack] = struct{}{}
 					}
 				}
 				flow.Unlock()

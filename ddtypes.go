@@ -31,7 +31,7 @@ type TCPAccounting struct {
 	Min       uint64
 	Last      uint64
 	TS, TSecr uint32
-	Seen      map[uint32]bool
+	Seen      map[uint32]struct{}
 	Timed     map[TCPKey]int64
 	Done      bool
 	Sampled   uint64
@@ -60,7 +60,7 @@ func NewTCPAccounting(src net.IP, dst net.IP, sport layers.TCPPort, dport layers
 		TSecr:   0,
 		Seq:     0,
 		Done:    false,
-		Seen:    make(map[uint32]bool),
+		Seen:    make(map[uint32]struct{}),
 		Timed:   make(map[TCPKey]int64),
 		Expire:  expire,
 		Alive:   nil,
