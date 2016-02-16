@@ -91,13 +91,15 @@ func initLogging(to_file bool, level string) {
 func main() {
 	flag.Parse()
 
+	initLogging(true, "warning")
+
 	//Parse config
 	filename, _ := filepath.Abs(*cfg)
 
 	yamlFile, err := ioutil.ReadFile(filename)
 	if err != nil {
 		log.Criticalf("Error reading configuration file: %s", err)
-		os.Exit(1)
+		os.Exit(0)
 	}
 
 	var cfg MetroConfig
