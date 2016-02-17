@@ -17,8 +17,16 @@ init_config:
 
 config:
 - interface: en0
-  tags: [mytag]
-  ips: []
+  tags:
+    - mytag
+    - bartag
+  ips:
+    - 192.168.1.1
+    - 10.0.10.100
+    - 111.2.22.111
+  hosts:
+    - purina.feeds.dog
+    - cats.feeddogs.to
 `
 
 const goodFileCfg = `
@@ -34,8 +42,31 @@ init_config:
 config:
 - interface: file
   pcap: fixtures/test_tcp.pcap
-  tags: [mytag]
-  ips: []
+  tags:
+    - mytag
+    - footag
+  ips:
+`
+
+const goodFilterFileCfg = `
+init_config:
+    snaplen: 512
+    idle_ttl: 300
+    exp_ttl: 60
+    statsd_ip: 127.0.0.1
+    statsd_port: 8125
+    log_to_file: true
+    log_level: debug
+
+config:
+- interface: file
+  pcap: fixtures/test_tcp.pcap
+  tags:
+    - mytag
+    - footag
+  ips:
+    - 192.168.1.116
+    - 107.6.106.82
 `
 
 const scpFileCfg = `
@@ -51,8 +82,9 @@ init_config:
 config:
 - interface: file
   pcap: fixtures/test_scp.pcap
-  tags: [scp]
-  ips: []
+  tags:
+    - scp
+  ips:
 `
 
 const badFileCfg = `
@@ -67,8 +99,10 @@ init_config:
 
 config:
 - interface: file
-  tags: [mytag]
-  ips: []
+  tags:
+    - mytag
+    - footag
+  ips:
 `
 
 const badCfg = `
@@ -96,8 +130,9 @@ init_config:
 
 config:
 - interface: noifc0
-  tags: [mytag]
-  ips: []
+  tags:
+    - mytag
+  ips:
 `
 
 func TestParseConfig(t *testing.T) {
@@ -105,6 +140,15 @@ func TestParseConfig(t *testing.T) {
 	err := cfg.Parse([]byte(goodCfg))
 	if err != nil {
 		t.Fatalf("MetroConfig.parse expected == nil, got %q", err)
+	}
+
+	if len(cfg.Configs[0].Ips) != 3 {
+		t.Fatalf("MetroConfig.parsing failed to parse the right number of whitelist IPs expected == 3, got %q",
+			len(cfg.Configs[0].Ips))
+	}
+	if len(cfg.Configs[0].Hosts) != 2 {
+		t.Fatalf("MetroConfig.parsing failed to parse the right number of whitelist IPs expected == 2, got %q",
+			len(cfg.Configs[0].Hosts))
 	}
 }
 
@@ -169,7 +213,7 @@ func TestSnifferFromFile(t *testing.T) {
 		}
 	}
 
-	if n_flows != 2 {
+	if n_flows != 1 {
 		t.Fatalf("Incorrect number of flows: %v", n_flows)
 	}
 }
@@ -198,6 +242,32 @@ func TestSnifferFilter(t *testing.T) {
 
 	if n_flows != 0 {
 		t.Fatalf("Flow incorrectly processed, should have been filtered! %v", n_flows)
+	}
+}
+
+func TestSnifferWhitelistFilter(t *testing.T) {
+	var cfg MetroConfig
+	err := cfg.Parse([]byte(goodFilterFileCfg))
+	if err != nil {
+		t.Fatalf("MetroConfig.parse expected == %q, got %q", nil, err)
+	}
+
+	rttsniffer, err := NewMetroSniffer(cfg.InitConf, cfg.Configs[0], "tcp")
+
+	//sniff
+	rttsniffer.hostIPs["192.168.1.116"] = true
+	err = rttsniffer.Sniff()
+	if err != nil {
+		t.Fatalf("Problem running sniffer expected %v, got %v - cfg %v", nil, err, cfg.Configs[0])
+	}
+
+	n_flows := 0
+	for _ = range rttsniffer.flows.FlowMapKeyIterator() {
+		n_flows++
+	}
+
+	if n_flows != 1 {
+		t.Fatalf("Flow incorrectly processed, should have been whitelisted, and remaining traffic filtered! %v", n_flows)
 	}
 }
 
