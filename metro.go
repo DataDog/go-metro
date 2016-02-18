@@ -53,7 +53,7 @@ func (i *arrayFlags) Set(value string) error {
 }
 
 func initLogging(to_file bool, level string) {
-	loglevel := "warning"
+	loglevel := "warn"
 
 	switch {
 	case strings.EqualFold(level, "trace"):
@@ -63,10 +63,13 @@ func initLogging(to_file bool, level string) {
 	case strings.EqualFold(level, "info"):
 		loglevel = "info"
 	case strings.EqualFold(level, "error"):
+	case strings.EqualFold(level, "err"):
 		loglevel = "error"
 	case strings.EqualFold(level, "critical"):
+	case strings.EqualFold(level, "crit"):
 		loglevel = "critical"
 	case strings.EqualFold(level, "warning"):
+	case strings.EqualFold(level, "warn"):
 	default:
 		log.Infof("Configured log level \"%s\" unknown - defaulting to WARNING level.", level)
 	}
