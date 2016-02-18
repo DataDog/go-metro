@@ -1,4 +1,4 @@
-** Seelog [LICENSE](https://github.com/cihub/seelog/blob/master/LICENSE.txt)
+## Seelog [LICENSE](https://github.com/cihub/seelog/blob/master/LICENSE.txt)
 
 Copyright (c) 2012, Cloud Instruments Co., Ltd. <info@cin.io>
 All rights reserved.
@@ -27,7 +27,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
 
-** Gopacket [LICENSE](https://github.com/cihub/seelog/blob/master/LICENSE.txt)
+## Gopacket [LICENSE](https://github.com/cihub/seelog/blob/master/LICENSE.txt)
 
 Copyright (c) 2012 Google, Inc. All rights reserved.
 Copyright (c) 2009-2011 Andreas Krennmair. All rights reserved.
@@ -60,7 +60,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
 
-** Tomb.v2 [LICENSE](https://github.com/go-tomb/tomb/blob/v2/LICENSE)
+## Tomb.v2 [LICENSE](https://github.com/go-tomb/tomb/blob/v2/LICENSE)
 
 tomb - support for clean goroutine termination in Go.
 
@@ -94,7 +94,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
 
-** yaml.v2 [LICENSE](https://github.com/go-yaml/yaml/blob/v2/LICENSE)
+## yaml.v2 [LICENSE](https://github.com/go-yaml/yaml/blob/v2/LICENSE)
 
 Copyright (c) 2011-2014 - Canonical Inc.
 
