@@ -101,7 +101,6 @@ func main() {
 
 	yamlFile, err := ioutil.ReadFile(filename)
 	if err != nil {
-		log.Criticalf("Error reading configuration file: %s", err)
 		//hack so that supervisord doesnt consider it "too quick" an exit.
 		time.Sleep(time.Second * 5)
 		os.Exit(0)
