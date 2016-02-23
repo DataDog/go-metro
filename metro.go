@@ -24,15 +24,21 @@ const (
 	defaultConfigFile = "/etc/dd-agent/checks.d/go-metro.yaml"
 	defaultLogFile    = "/var/log/datadog/go-metro.log"
 	defaultBPFFilter  = "tcp"
-	baseFileLogConfig = `
-<seelog minlevel="ddloglevel">
-	<outputs>
+	baseFileLogConfig = `<seelog minlevel="ddloglevel">
+	<outputs formatid="common">
 		<rollingfile type="size" filename="ddlogfile" maxsize="100000" maxrolls="5" />
 	</outputs>
+	<formats>
+		<format id="common" format="%Date %Time TIMEZONE | %LEVEL | (%File:%Line) |  %Msg%n" />
+	</formats>
 </seelog>`
-	baseStdoLogConfig = `
-<seelog minlevel="ddloglevel">
-	<outputs><console/></outputs>
+	baseStdoLogConfig = `<seelog minlevel="ddloglevel">
+	<outputs formatid="common">
+		<console />
+	</outputs>
+	<formats>
+		<format id="common" format="%Date %Time TIMEZONE | %LEVEL | (%File:%Line) |  %Msg%n"/>
+	</formats>
 </seelog>`
 )
 
@@ -76,12 +82,14 @@ func initLogging(to_file bool, level string) {
 
 	var logConfig []byte
 
+	timezone, _ := time.Now().Zone()
 	if to_file {
 		logConfig = bytes.Replace([]byte(baseFileLogConfig), []byte("ddloglevel"), []byte(strings.ToLower(loglevel)), 1)
 		logConfig = bytes.Replace([]byte(logConfig), []byte("ddlogfile"), []byte(*logfile), 1)
 	} else {
 		logConfig = bytes.Replace([]byte(baseStdoLogConfig), []byte("ddloglevel"), []byte(strings.ToLower(loglevel)), 1)
 	}
+	logConfig = bytes.Replace([]byte(logConfig), []byte("TIMEZONE"), []byte(strings.ToUpper(timezone)), 1)
 	logger, err := log.LoggerFromConfigAsBytes(logConfig)
 	if err != nil {
 		log.Criticalf("Unable to initiate logger: %s", err)

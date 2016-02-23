@@ -99,7 +99,7 @@ func (r *Client) Report() error {
 						dstHost = flow.Dst.String()
 					}
 
-					tags := []string{"link:" + srcHost + "-" + dstHost}
+					tags := []string{"src:" + srcHost, "dst:" + dstHost}
 					tags = append(tags, r.tags...)
 
 					metric := "system.net.tcp.rtt.avg"
@@ -112,7 +112,7 @@ func (r *Client) Report() error {
 					if err != nil {
 						success = false
 					}
-					metric = "system.net.tcp.rtt.last"
+					metric = "system.net.tcp.rtt"
 					err = r.submit(k, metric, value_last, tags, false)
 					if err != nil {
 						success = false

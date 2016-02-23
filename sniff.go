@@ -90,6 +90,7 @@ func NewMetroSniffer(instcfg InitConfig, cfg Config, filter string) (*MetroSniff
 	d.decoder = NewMetroDecoder()
 
 	var err error
+	d.config.Tags = append(d.config.Tags, "iface:"+d.Iface)
 	d.reporter, err = NewClient(net.ParseIP(d.statsdIP), d.statsdPort, statsdSleep, d.flows, d.nameLookup, d.config.Tags)
 	if err != nil {
 		return nil, err
