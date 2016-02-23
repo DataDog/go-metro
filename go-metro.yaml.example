@@ -15,7 +15,7 @@ init_config:
     log_to_file: true
     log_level: info         # available levels: trace, debug, info, warning, error, critical
 
-config:
+instances:
 - interface: eth0           # metrics will be also tagged by interface.
   tags:
     - foo:bar

@@ -30,7 +30,7 @@ type Config struct {
 
 type MetroConfig struct {
 	InitConf InitConfig `yaml:"init_config"`
-	Configs  []Config   `yaml:"config"`
+	Configs  []Config   `yaml:"instances"`
 }
 
 func (c *MetroConfig) Parse(data []byte) error {
