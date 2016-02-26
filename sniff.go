@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -344,7 +343,7 @@ func (d *MetroSniffer) Sniff() error {
 	ifaces, err := pcap.FindAllDevs()
 	if err != nil {
 		log.Criticalf("Error getting interface details: %s", err)
-		os.Exit(1)
+		panic(Exit{1})
 	}
 
 	ifaceFound := false
@@ -358,7 +357,7 @@ func (d *MetroSniffer) Sniff() error {
 
 	if !ifaceFound && d.Iface != fileInterface {
 		log.Criticalf("Could not find interface details for: %s", d.Iface)
-		os.Exit(1)
+		panic(Exit{1})
 	}
 
 	// we need to identify if we're the source/destination
@@ -419,7 +418,7 @@ func (d *MetroSniffer) Sniff() error {
 	log.Infof("Setting BPF filter: %s", d.Filter)
 	if err := d.pcapHandle.SetBPFFilter(d.Filter); err != nil {
 		log.Criticalf("error setting BPF filter: %s", err)
-		os.Exit(1)
+		panic(Exit{1})
 	}
 
 	log.Infof("reading in packets")

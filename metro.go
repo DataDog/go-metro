@@ -58,7 +58,19 @@ func (i *arrayFlags) Set(value string) error {
 	return nil
 }
 
-func initLogging(to_file bool, level string) {
+type Exit struct{ Code int }
+
+// exit code handler
+func handleExit() {
+	if e := recover(); e != nil {
+		if exit, ok := e.(Exit); ok == true {
+			os.Exit(exit.Code)
+		}
+		panic(e) // not an Exit, bubble up
+	}
+}
+
+func initLogging(to_file bool, level string) log.LoggerInterface {
 	loglevel := "warn"
 
 	switch {
@@ -93,16 +105,19 @@ func initLogging(to_file bool, level string) {
 	logger, err := log.LoggerFromConfigAsBytes(logConfig)
 	if err != nil {
 		log.Criticalf("Unable to initiate logger: %s", err)
-		os.Exit(1)
+		panic(Exit{1})
 	}
 	log.ReplaceLogger(logger)
+	return logger
 
 }
 
 func main() {
+	defer handleExit()
+	defer log.Flush()
 	flag.Parse()
 
-	initLogging(true, "warning")
+	logger := initLogging(true, "warning")
 
 	//Parse config
 	filename, _ := filepath.Abs(*cfg)
@@ -111,22 +126,23 @@ func main() {
 	if err != nil {
 		//hack so that supervisord doesnt consider it "too quick" an exit.
 		time.Sleep(time.Second * 5)
-		os.Exit(0)
+		panic(Exit{0})
 	}
 
 	var cfg MetroConfig
 	err = cfg.Parse(yamlFile)
 	if err != nil {
 		log.Criticalf("Error parsing configuration file: %s ", err)
-		os.Exit(1)
+		panic(Exit{1})
 	}
 
 	//set logging
 	if cfg.InitConf.LogToFile {
-		initLogging(true, cfg.InitConf.LogLevel)
+		logger = initLogging(true, cfg.InitConf.LogLevel)
 	} else {
-		initLogging(false, cfg.InitConf.LogLevel)
+		logger = initLogging(false, cfg.InitConf.LogLevel)
 	}
+	defer logger.Close()
 
 	//Install signal handler
 	signalChan := make(chan os.Signal, 1)
@@ -170,11 +186,15 @@ func main() {
 	ifaces, err := pcap.FindAllDevs()
 	if err != nil {
 		log.Criticalf("Error getting interface details: %s", err)
-		os.Exit(1)
+		panic(Exit{1})
 	}
 
 	sniffers := make([]*MetroSniffer, 0)
 	for i := range cfg.Configs {
+		if len(cfg.Configs[i].Ips) == 0 && len(cfg.Configs[i].Hosts) == 0 {
+			log.Errorf("Whitelists must be enabled for go-metro to run (you may whitelist by IP or hostname in config file).")
+			panic(Exit{1})
+		}
 		for j := range ifaces {
 			if ifaces[j].Name == cfg.Configs[i].Interface {
 				log.Infof("Will attempt sniffing off interface %q", cfg.Configs[i].Interface)
@@ -191,7 +211,7 @@ func main() {
 
 	if len(sniffers) == 0 {
 		log.Criticalf("No sniffers available, baling out (please check your configuration and privileges).")
-		os.Exit(1)
+		panic(Exit{1})
 	}
 
 	//Check all sniffers are up and running or quit.
