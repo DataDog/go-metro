@@ -125,7 +125,7 @@ func main() {
 	yamlFile, err := ioutil.ReadFile(filename)
 	if err != nil {
 		//hack so that supervisord doesnt consider it "too quick" an exit.
-		time.Sleep(time.Second * 5)
+		time.Sleep(time.Second * 3)
 		panic(Exit{0})
 	}
 
@@ -186,6 +186,7 @@ func main() {
 	ifaces, err := pcap.FindAllDevs()
 	if err != nil {
 		log.Criticalf("Error getting interface details: %s", err)
+		time.Sleep(time.Second * 3)
 		panic(Exit{2})
 	}
 
@@ -211,6 +212,7 @@ func main() {
 
 	if len(sniffers) == 0 {
 		log.Criticalf("No sniffers available, baling out (please check your configuration and privileges).")
+		time.Sleep(time.Second * 3)
 		panic(Exit{2})
 	}
 
@@ -221,6 +223,7 @@ func main() {
 		running := sniffers[i].Running()
 		if !running {
 			log.Criticalf("Unable to start sniffer for interface: %q (please check your configuration and privileges).", sniffers[i].Iface)
+			time.Sleep(time.Second * 3)
 			os.Exit(2)
 		}
 	}
