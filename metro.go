@@ -186,7 +186,7 @@ func main() {
 	ifaces, err := pcap.FindAllDevs()
 	if err != nil {
 		log.Criticalf("Error getting interface details: %s", err)
-		panic(Exit{1})
+		panic(Exit{2})
 	}
 
 	sniffers := make([]*MetroSniffer, 0)
@@ -211,7 +211,7 @@ func main() {
 
 	if len(sniffers) == 0 {
 		log.Criticalf("No sniffers available, baling out (please check your configuration and privileges).")
-		panic(Exit{1})
+		panic(Exit{2})
 	}
 
 	//Check all sniffers are up and running or quit.
@@ -221,7 +221,7 @@ func main() {
 		running := sniffers[i].Running()
 		if !running {
 			log.Criticalf("Unable to start sniffer for interface: %q (please check your configuration and privileges).", sniffers[i].Iface)
-			os.Exit(1)
+			os.Exit(2)
 		}
 	}
 
