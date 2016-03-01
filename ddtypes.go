@@ -15,7 +15,9 @@ type TCPKey struct {
 }
 
 const (
-	CHAN_DEPTH = 10
+	CHAN_DEPTH      = 10
+	FLUSH_IVAL      = 600
+	FORCE_FLUSH_PCT = 0.1
 )
 
 // scanner handles scanning a single IP address.
@@ -40,30 +42,32 @@ type TCPAccounting struct {
 	LastSz    uint32
 	Expire    *chan string
 	Alive     *time.Timer
+	LastFlush int64
 }
 
 // New creates a new stream.  It's called whenever the assembler sees a stream
 // it isn't currently following.
 func NewTCPAccounting(src net.IP, dst net.IP, sport layers.TCPPort, dport layers.TCPPort, d time.Duration, expire *chan string) *TCPAccounting {
 	t := &TCPAccounting{
-		Dst:     dst,
-		Src:     src,
-		Dport:   dport,
-		Sport:   sport,
-		SRTT:    0,
-		Jitter:  0,
-		Max:     0,
-		Min:     math.MaxUint64,
-		Last:    0,
-		Sampled: 0,
-		TS:      0,
-		TSecr:   0,
-		Seq:     0,
-		Done:    false,
-		Seen:    make(map[uint32]struct{}),
-		Timed:   make(map[TCPKey]int64),
-		Expire:  expire,
-		Alive:   nil,
+		Dst:       dst,
+		Src:       src,
+		Dport:     dport,
+		Sport:     sport,
+		SRTT:      0,
+		Jitter:    0,
+		Max:       0,
+		Min:       math.MaxUint64,
+		Last:      0,
+		Sampled:   0,
+		TS:        0,
+		TSecr:     0,
+		Seq:       0,
+		Done:      false,
+		Seen:      make(map[uint32]struct{}),
+		Timed:     make(map[TCPKey]int64),
+		Expire:    expire,
+		Alive:     nil,
+		LastFlush: time.Now().Unix(),
 	}
 	return t
 }
@@ -78,6 +82,15 @@ func (t *TCPAccounting) SetExpiration(ttl time.Duration, expkey string) {
 		t.Unlock()
 		*t.Expire <- expkey
 	})
+}
+
+//Call holding lock!
+func (t *TCPAccounting) Flush() {
+	//Current maps will be GC'd
+	t.Seen = make(map[uint32]struct{})
+	t.Timed = make(map[TCPKey]int64)
+
+	t.LastFlush = time.Now().Unix()
 }
 
 type TimedMap struct {
