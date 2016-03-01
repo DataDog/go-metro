@@ -138,6 +138,8 @@ func (d *MetroSniffer) SetPcapHandle(handle *pcap.Handle) {
 }
 
 func (d *MetroSniffer) handlePacket(data []byte, ci *gopacket.CaptureInfo) error {
+	var buffer bytes.Buffer
+
 	err := d.decoder.parser.DecodeLayers(data, &d.decoder.decoded)
 	if err != nil {
 		log.Infof("error decoding packet: %v", err)
@@ -170,8 +172,14 @@ func (d *MetroSniffer) handlePacket(data []byte, ci *gopacket.CaptureInfo) error
 					dst = net.JoinHostPort(d.decoder.ip4.SrcIP.String(), strconv.Itoa(int(d.decoder.tcp.SrcPort)))
 				}
 
+				buffer.Reset()
+				buffer.WriteString(src)
+				buffer.WriteString("-")
+				buffer.WriteString(dst)
+				flowkey := buffer.String()
+
 				idle := time.Duration(d.IdleTTL * int(time.Second))
-				flow, exists := d.flows.Get(src + "-" + dst)
+				flow, exists := d.flows.Get(flowkey)
 				if exists == false {
 					// TCPAccounting objects self-expire if they are inactive for a period of time >idle
 					if ourIP {
@@ -180,8 +188,8 @@ func (d *MetroSniffer) handlePacket(data []byte, ci *gopacket.CaptureInfo) error
 						flow = NewTCPAccounting(d.decoder.ip4.DstIP, d.decoder.ip4.SrcIP, d.decoder.tcp.DstPort, d.decoder.tcp.SrcPort, idle, &d.flows.Expire)
 					}
 					flow.Lock()
-					d.flows.Add(src+"-"+dst, flow)
-					flow.SetExpiration(idle, src+"-"+dst)
+					d.flows.Add(flowkey, flow)
+					flow.SetExpiration(idle, flowkey)
 				} else {
 					//flow still alive - reset timer
 					flow.Lock()
@@ -197,7 +205,7 @@ func (d *MetroSniffer) handlePacket(data []byte, ci *gopacket.CaptureInfo) error
 
 					//set timer
 					flow.Done = true
-					flow.SetExpiration(expTTL, src+"-"+dst)
+					flow.SetExpiration(expTTL, flowkey)
 				}
 
 				tcp_payload_sz := uint32(d.decoder.ip4.Length) - uint32((d.decoder.ip4.IHL+d.decoder.tcp.DataOffset)*4)
@@ -228,6 +236,9 @@ func (d *MetroSniffer) handlePacket(data []byte, ci *gopacket.CaptureInfo) error
 							flow.MinRTT(rtt)
 							flow.Last = rtt
 							flow.Sampled++
+
+							//we can clean-up
+							delete(flow.Timed, t)
 						}
 						flow.Seen[d.decoder.tcp.Ack] = struct{}{}
 					}

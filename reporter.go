@@ -1,9 +1,14 @@
 package main
 
 import (
+	"bufio"
+	"errors"
 	"gopkg.in/tomb.v2"
 	"net"
+	"os"
+	"runtime"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/DataDog/datadog-go/statsd"
@@ -25,6 +30,32 @@ const (
 	statsdBufflen = 5
 	statsdSleep   = 30
 )
+
+func memorySize() (uint64, error) {
+	f, err := os.Open("/proc/meminfo")
+	if err != nil {
+		return 0, err
+	}
+
+	s := bufio.NewScanner(f)
+	if !s.Scan() {
+		return 0, errors.New("/proc/meminfo parse error")
+	}
+
+	l := s.Text()
+	fs := strings.Fields(l)
+	if len(fs) != 3 || fs[2] != "kB" {
+		return 0, errors.New("/proc/meminfo parse error")
+	}
+
+	kb, err := strconv.ParseUint(fs[1], 10, 64)
+	if err != nil {
+		return 0, err
+	}
+
+	//return bytes
+	return kb * 1024, nil
+}
 
 func NewClient(ip net.IP, port int32, sleep int32, flows *FlowMap, lookup map[string]string, tags []string) (*Client, error) {
 	cli, err := statsd.NewBuffered(net.JoinHostPort(ip.String(), strconv.Itoa(int(port))), statsdBufflen)
@@ -72,14 +103,36 @@ func (r *Client) Report() error {
 
 	log.Infof("Started reporting.")
 
+	memsize, err := memorySize()
+	if err != nil {
+		log.Warnf("Error getting memory size. Relying on OOM to keep process in check. Err: %v", err)
+	}
+
 	ticker := time.NewTicker(time.Duration(r.sleep) * time.Second)
 	done := false
+	var memstats runtime.MemStats
+	var pct float64
 	for !done {
 		select {
 		case key := <-r.flows.Expire:
 			r.flows.Delete(key)
 			log.Infof("Flow expired: [%s]", key)
 		case <-ticker.C:
+			flush := false
+			now := time.Now().Unix()
+
+			runtime.ReadMemStats(&memstats)
+			if memsize > 0 {
+				pct = float64(memstats.Alloc) / float64(memsize)
+			} else {
+				pct = 0
+			}
+
+			if pct >= FORCE_FLUSH_PCT { //memory out of control
+				flush = true
+				log.Warnf("Forcing flush - memory consumption above maximum allowed system usage: %v %%", pct*100)
+			}
+
 			r.flows.Lock()
 			for k := range r.flows.Map {
 				flow, e := r.flows.GetUnsafe(k)
@@ -120,6 +173,10 @@ func (r *Client) Report() error {
 					if success {
 						log.Debugf("Reported successfully on: %v", k)
 					}
+				}
+				if flush || (now-flow.LastFlush) > FLUSH_IVAL {
+					log.Debugf("Flushing book-keeping for long-lived flow: %v", k)
+					flow.Flush()
 				}
 				flow.Unlock()
 			}
