@@ -413,7 +413,22 @@ func (d *MetroSniffer) Sniff() error {
 				log.Infof("%s resolving to: %s", hostnames[j], d.config.Ips[i])
 			}
 		}
+	}
 
+	//let's make sure they haven't just whitelisted local ips/hosts
+	localWhitelist := true
+	for _, host := range d.config.Ips {
+		_, local := d.hostIPs[host]
+		if !local {
+			localWhitelist = false
+		}
+	}
+	if localWhitelist {
+		err := errors.New("Whitelist cannot contain just local addresses! Bailing out")
+		log.Errorf("%v : %v", err, hosts)
+		d.reporter.Stop()
+		d.die(err)
+		return err
 	}
 
 	bpfFilter := ""
