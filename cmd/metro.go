@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/DataDog/go-metro"
+	"github.com/DataDog/go-metro/ingestion"
 	"github.com/DataDog/go-metro/processors/tcp"
 	"github.com/DataDog/go-metro/reporters"
 	log "github.com/cihub/seelog"
@@ -50,6 +51,7 @@ var soften = flag.Bool("st", true, "Soften RTTM")
 func init() {
 	metro.RegisterProcessorFactory("tcp-rtt", tcp.Factory)
 	metro.RegisterReporterFactory("statsd", reporters.StatsdClientFactory)
+	metro.RegisterIngestorFactory("pcap", ingestion.PcapSnifferFactory)
 }
 
 func initLogging(to_file bool, level string) log.LoggerInterface {
@@ -183,6 +185,26 @@ func main() {
 		metro.Reporters[r.Name()] = r
 	}
 
+	// instantiate ingestors
+	for _, ingestorCfg := range cfg.IngestionModules {
+		factory, ok := metro.IngestorFactories[ingestorCfg.Name]
+		if !ok {
+			log.Warnf("Processor factory unavailable, continue...")
+			continue
+		}
+		i, err := factory(ingestorCfg.ModuleConfig)
+		if err != nil {
+			log.Warnf("Issue instantiating reporter: %v", err)
+			continue
+		}
+
+		if _, ok := metro.Ingestors[i.Name()]; ok {
+			log.Warnf("Ingestor already instantiated: %v", i.Name())
+			continue
+		}
+		metro.Ingestors[i.Name()] = i
+	}
+
 	// instantiate processors
 	for _, processorCfg := range cfg.ProcessModules {
 		factory, ok := metro.ProcessorFactories[processorCfg.Name]
@@ -208,6 +230,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Register Processors with Ingestors
+	for _, processor := range metro.Processors {
+		for _, ingestor := range metro.Ingestors {
+			ingestor.RegisterProcessor(processor.Name(), processor)
+		}
+	}
+
 	// Register Reporters with Processors
 	for _, reporter := range metro.Reporters {
 		for _, processor := range metro.Processors {
@@ -218,6 +247,11 @@ func main() {
 	// Start all processors
 	for _, processor := range metro.Processors {
 		processor.Start()
+	}
+
+	// Start all ingestors
+	for _, ingestor := range metro.Ingestors {
+		ingestor.Start()
 	}
 
 	//Check all sniffers are up and running or quit.

@@ -24,6 +24,7 @@ import (
 const (
 	reportInterval = 30
 	processorName  = "tcp-rtt"
+	inflight       = 10000
 )
 
 var (
@@ -60,15 +61,9 @@ func NewMetroDecoder() *MetroDecoder {
 // specifically pass in.  This trade-off can be quite useful, though, in
 // high-throughput situations.
 type MetroSniffer struct {
-	Iface          string
-	Snaplen        int
-	Filter         string
 	ExpTTL         int
 	IdleTTL        int
 	Soften         bool
-	statsdIP       string
-	statsdPort     int32
-	pcapHandle     *pcap.Handle
 	decoder        *MetroDecoder
 	hostIPs        map[string]bool
 	nameLookup     map[string]string
@@ -78,7 +73,14 @@ type MetroSniffer struct {
 	reporters      map[string]metro.Reporter
 	reportIval     time.Duration
 	config         MetroTCPConfig
+	packets        chan PacketWrapper
+	to             chan struct{}
 	t              tomb.Tomb
+}
+
+type PacketWrapper struct {
+	packet []byte
+	info   *gopacket.CaptureInfo
 }
 
 func NewSnifferFromYAML(path string) (metro.Processor, error) {
@@ -103,32 +105,15 @@ func NewSnifferFromYAML(path string) (metro.Processor, error) {
 		return nil, err
 	}
 
-	ifaces, err := pcap.FindAllDevs()
-	if err != nil {
-		log.Criticalf("Error getting interface details: %s", err)
-		return nil, err
-	}
-
-	for j := range ifaces {
-		if ifaces[j].Name == cfg.Interface {
-			log.Infof("Will attempt sniffing off interface %q", cfg.Interface)
-			return NewMetroSniffer(cfg)
-		}
-	}
-
-	return nil, errors.New("Unable to find matching interface to sniff")
+	return NewMetroSniffer(cfg)
 
 }
 
 func NewMetroSniffer(cfg MetroTCPConfig) (*MetroSniffer, error) {
 	d := &MetroSniffer{
-		Iface:      cfg.Interface,
-		Snaplen:    cfg.Snaplen,
-		Filter:     cfg.BPF,
 		ExpTTL:     cfg.ExpTTL,
 		IdleTTL:    cfg.IdleTTL,
 		Soften:     false,
-		pcapHandle: nil,
 		hostIPs:    make(map[string]bool),
 		nameLookup: make(map[string]string),
 		reporters:  make(map[string]metro.Reporter),
@@ -136,11 +121,10 @@ func NewMetroSniffer(cfg MetroTCPConfig) (*MetroSniffer, error) {
 		sampleTS:   time.Now().UnixNano(),
 		flows:      NewFlowMap(),
 		config:     cfg,
+		packets:    make(chan PacketWrapper, inflight),
 	}
 	d.sampleDeadline = d.sampleTS + int64(d.config.SampleDuration)*time.Second.Nanoseconds()
 	d.decoder = NewMetroDecoder()
-
-	d.config.Tags = append(d.config.Tags, "iface:"+d.Iface)
 
 	return d, nil
 }
@@ -164,7 +148,7 @@ func GetTimestamps(tcp *layers.TCP) (uint32, uint32, error) {
 
 func (d *MetroSniffer) Start() error {
 	d.t.Go(d.Report)
-	d.t.Go(d.Sniff)
+	d.t.Go(d.Process)
 
 	return nil
 }
@@ -185,10 +169,6 @@ func (d *MetroSniffer) RegisterReporter(id string, reporter metro.Reporter) erro
 
 	d.reporters[id] = reporter
 	return nil
-}
-
-func (d *MetroSniffer) SetPcapHandle(handle *pcap.Handle) {
-	d.pcapHandle = handle
 }
 
 func (d *MetroSniffer) die(err error) {
@@ -308,7 +288,36 @@ func (d *MetroSniffer) handlePacket(data []byte, ci *gopacket.CaptureInfo) error
 	return nil
 }
 
-func (d *MetroSniffer) SniffLive() {
+// Blocking Operation
+func (d *MetroSniffer) EnqueuePacket(data []byte, info interface{}) error {
+	ci, ok := info.(*gopacket.CaptureInfo)
+	if !ok {
+		return fmt.Errorf("unexpected info format")
+	}
+
+	pkt := PacketWrapper{packet: data, info: ci}
+	select {
+	case d.packets <- pkt:
+	default:
+		err := fmt.Errorf("Queue is full dropping packet...")
+		log.Warnf("%v", err)
+		return err
+
+	}
+	return nil
+}
+
+// Blocking Operation
+func (d *MetroSniffer) DequeuePacket() ([]byte, *gopacket.CaptureInfo, error) {
+	select {
+	case pkt := <-d.packets:
+		return pkt.packet, pkt.info, nil
+	case <-time.After(time.Second):
+	}
+	return nil, nil, fmt.Errorf("no packets available")
+}
+
+func (d *MetroSniffer) Work() {
 
 	quit := false
 	for !quit {
@@ -318,7 +327,10 @@ func (d *MetroSniffer) SniffLive() {
 		// data slice we're operating on. Giving place to bad results.
 		// Keep this in mind as a viable optimization for the future:
 		//   - packet retrieval using  ZeroCopyReadPacketData.
-		data, ci, err := d.pcapHandle.ReadPacketData()
+		data, ci, err := d.DequeuePacket()
+		if err != nil {
+			continue
+		}
 
 		if d.config.Sample {
 			ts := ci.Timestamp.UnixNano()
@@ -330,12 +342,12 @@ func (d *MetroSniffer) SniffLive() {
 				d.sampleDeadline = d.sampleTS + (int64(d.config.SampleDuration) * time.Second.Nanoseconds())
 			} else {
 				if err == nil {
-					d.handlePacket(data, &ci)
+					d.handlePacket(data, ci)
 				}
 			}
 		} else {
 			if err == nil {
-				d.handlePacket(data, &ci)
+				d.handlePacket(data, ci)
 			}
 		}
 
@@ -349,62 +361,7 @@ func (d *MetroSniffer) SniffLive() {
 	}
 }
 
-func (d *MetroSniffer) SniffOffline() {
-	packetSource := gopacket.NewPacketSource(d.pcapHandle, d.pcapHandle.LinkType())
-
-	for packet := range packetSource.Packets() {
-		//Grab Packet CaptureInfo metadata
-		ci := packet.Metadata().CaptureInfo
-		d.handlePacket(packet.Data(), &ci)
-		select {
-		case <-d.t.Dying():
-			log.Infof("Done sniffing.")
-			break
-		default:
-			continue
-		}
-	}
-}
-
-func (d *MetroSniffer) Sniff() error {
-
-	if d.pcapHandle == nil {
-
-		log.Infof("starting capture on interface %q", d.Iface)
-
-		if d.Iface != fileInterface {
-			// Set up pcap packet capture
-			inactive, err := pcap.NewInactiveHandle(d.Iface)
-			if err != nil {
-				log.Errorf("Unable to create inactive handle for %q", d.Iface)
-				d.die(err)
-				return err
-			}
-			defer inactive.CleanUp()
-
-			inactive.SetSnapLen(d.Snaplen)
-			inactive.SetPromisc(false)
-			inactive.SetTimeout(time.Second)
-
-			// TODO: Make the timestamp source selectable - Not all OS will allow that.
-			//       call SupportedTimestamps() on handle to check what's available
-			handle, err := inactive.Activate()
-			if err != nil {
-				log.Errorf("Unable to activate %q", d.Iface)
-				d.die(err)
-				return err
-			}
-			d.pcapHandle = handle
-		} else {
-			handle, err := pcap.OpenOffline(d.config.Pcap)
-			if err != nil {
-				log.Errorf("Unable to open pcap file %q", d.config.Pcap)
-				d.die(err)
-				return err
-			}
-			d.pcapHandle = handle
-		}
-	}
+func (d *MetroSniffer) Process() error {
 
 	ifaces, err := pcap.FindAllDevs()
 	if err != nil {
@@ -412,25 +369,10 @@ func (d *MetroSniffer) Sniff() error {
 		panic(err)
 	}
 
-	ifaceFound := false
-	ifaceDetails := make([]pcap.Interface, len(ifaces)-1)
-	for i := range ifaces {
-		if ifaces[i].Name == d.Iface {
-			ifaceDetails[i] = ifaces[i]
-			ifaceFound = true
-		}
-	}
-
-	if !ifaceFound && d.Iface != fileInterface {
-		err = fmt.Errorf("Could not find interface details for: %s", d.Iface)
-		log.Criticalf("%v", err)
-		panic(err)
-	}
-
 	// we need to identify if we're the source/destination
-	for i := range ifaceDetails {
-		for j := range ifaceDetails[i].Addresses {
-			ipStr := ifaceDetails[i].Addresses[j].IP.String()
+	for _, iface := range ifaces {
+		for _, address := range iface.Addresses {
+			ipStr := address.IP.String()
 			if strings.Contains(ipStr, "::") {
 				log.Infof("IPv6 currently unsupported ignoring: %s", ipStr)
 			} else {
@@ -452,9 +394,7 @@ func (d *MetroSniffer) Sniff() error {
 		}
 	}
 
-	hosts := make([]string, 0)
 	for i := range d.config.Ips {
-		hosts = append(hosts, fmt.Sprintf("host %s", d.config.Ips[i]))
 
 		//add posible missing hostnames
 		_, ok := d.nameLookup[d.config.Ips[i]]
@@ -471,43 +411,7 @@ func (d *MetroSniffer) Sniff() error {
 		}
 	}
 
-	//let's make sure they haven't just whitelisted local ips/hosts
-	// localWhitelist := true
-	// for _, host := range d.config.Ips {
-	// 	_, local := d.hostIPs[host]
-	// 	if !local {
-	// 		localWhitelist = false
-	// 	}
-	// }
-	// if localWhitelist {
-	// 	err := errors.New("Whitelist cannot contain just local addresses! Bailing out")
-	// 	log.Errorf("%v : %v", err, hosts)
-	// 	d.die(err)
-	// 	return err
-	// }
-
-	bpfFilter := ""
-	if len(hosts) > 0 {
-		bpfFilter = "(" + strings.Join(hosts, " or ") + ")"
-	}
-
-	d.Filter += " and not host 127.0.0.1"
-	if len(hosts) > 0 {
-		d.Filter += " and " + bpfFilter
-	}
-
-	log.Infof("Setting BPF filter: %s", d.Filter)
-	if err := d.pcapHandle.SetBPFFilter(d.Filter); err != nil {
-		log.Criticalf("error setting BPF filter: %s", err)
-		panic(err)
-	}
-
-	log.Infof("reading in packets")
-	if d.Iface == fileInterface {
-		d.SniffOffline()
-	} else {
-		d.SniffLive()
-	}
+	d.Work()
 
 	for k := range d.flows.FlowMapKeyIterator() {
 		flow, e := d.flows.Get(k)
