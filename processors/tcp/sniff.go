@@ -1,21 +1,33 @@
-package main
+package tcp
 
 import (
 	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"net"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"gopkg.in/tomb.v2"
 
+	"github.com/DataDog/go-metro"
 	log "github.com/cihub/seelog"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcap"
+)
+
+const (
+	reportInterval = 30
+	processorName  = "tcp-rtt"
+)
+
+var (
+	supportedReporters = []string{"statsd"}
 )
 
 type MetroDecoder struct {
@@ -63,24 +75,64 @@ type MetroSniffer struct {
 	sampleTS       int64
 	sampleDeadline int64
 	flows          *FlowMap
-	reporter       *Client
-	config         Config
+	reporters      map[string]metro.Reporter
+	reportIval     time.Duration
+	config         MetroTCPConfig
 	t              tomb.Tomb
 }
 
-func NewMetroSniffer(instcfg InitConfig, cfg Config, filter string) (*MetroSniffer, error) {
+func NewSnifferFromYAML(path string) (metro.Processor, error) {
+	//Parse config
+	filename, _ := filepath.Abs(path)
+
+	yamlFile, err := ioutil.ReadFile(filename)
+	if err != nil {
+		return nil, errors.New("configuration file not found")
+	}
+
+	var cfg MetroTCPConfig
+	err = cfg.Parse(yamlFile)
+	if err != nil {
+		log.Criticalf("Error parsing configuration file: %s ", err)
+		return nil, err
+	}
+
+	if len(cfg.Ips) == 0 && len(cfg.Hosts) == 0 {
+		err := fmt.Errorf("Whitelists must be enabled for go-metro to run (you may whitelist by IP or hostname in config file).")
+		log.Errorf("%v", err)
+		return nil, err
+	}
+
+	ifaces, err := pcap.FindAllDevs()
+	if err != nil {
+		log.Criticalf("Error getting interface details: %s", err)
+		return nil, err
+	}
+
+	for j := range ifaces {
+		if ifaces[j].Name == cfg.Interface {
+			log.Infof("Will attempt sniffing off interface %q", cfg.Interface)
+			return NewMetroSniffer(cfg)
+		}
+	}
+
+	return nil, errors.New("Unable to find matching interface to sniff")
+
+}
+
+func NewMetroSniffer(cfg MetroTCPConfig) (*MetroSniffer, error) {
 	d := &MetroSniffer{
 		Iface:      cfg.Interface,
-		Snaplen:    instcfg.Snaplen,
-		Filter:     filter,
-		ExpTTL:     instcfg.ExpTTL,
-		IdleTTL:    instcfg.IdleTTL,
+		Snaplen:    cfg.Snaplen,
+		Filter:     cfg.BPF,
+		ExpTTL:     cfg.ExpTTL,
+		IdleTTL:    cfg.IdleTTL,
 		Soften:     false,
-		statsdIP:   instcfg.StatsdIP,
-		statsdPort: int32(instcfg.StatsdPort),
 		pcapHandle: nil,
 		hostIPs:    make(map[string]bool),
 		nameLookup: make(map[string]string),
+		reporters:  make(map[string]metro.Reporter),
+		reportIval: time.Duration(reportInterval) * time.Second,
 		sampleTS:   time.Now().UnixNano(),
 		flows:      NewFlowMap(),
 		config:     cfg,
@@ -88,12 +140,7 @@ func NewMetroSniffer(instcfg InitConfig, cfg Config, filter string) (*MetroSniff
 	d.sampleDeadline = d.sampleTS + int64(d.config.SampleDuration)*time.Second.Nanoseconds()
 	d.decoder = NewMetroDecoder()
 
-	var err error
 	d.config.Tags = append(d.config.Tags, "iface:"+d.Iface)
-	d.reporter, err = NewClient(net.ParseIP(d.statsdIP), d.statsdPort, statsdSleep, d.flows, d.nameLookup, d.config.Tags)
-	if err != nil {
-		return nil, err
-	}
 
 	return d, nil
 }
@@ -115,8 +162,11 @@ func GetTimestamps(tcp *layers.TCP) (uint32, uint32, error) {
 	return 0, 0, errors.New("No TCP timestamp Options!")
 }
 
-func (d *MetroSniffer) Start() {
+func (d *MetroSniffer) Start() error {
+	d.t.Go(d.Report)
 	d.t.Go(d.Sniff)
+
+	return nil
 }
 
 func (d *MetroSniffer) Stop() error {
@@ -124,17 +174,25 @@ func (d *MetroSniffer) Stop() error {
 	return d.t.Wait()
 }
 
-//Unexported - we only call this ourselves.
-func (d *MetroSniffer) die(err error) {
-	d.t.Kill(err)
-}
-
 func (d *MetroSniffer) Running() bool {
 	return d.t.Alive()
 }
 
+func (d *MetroSniffer) RegisterReporter(id string, reporter metro.Reporter) error {
+	if _, ok := d.reporters[id]; ok {
+		return errors.New("Reporter already registered")
+	}
+
+	d.reporters[id] = reporter
+	return nil
+}
+
 func (d *MetroSniffer) SetPcapHandle(handle *pcap.Handle) {
 	d.pcapHandle = handle
+}
+
+func (d *MetroSniffer) die(err error) {
+	d.t.Kill(err)
 }
 
 func (d *MetroSniffer) handlePacket(data []byte, ci *gopacket.CaptureInfo) error {
@@ -319,7 +377,6 @@ func (d *MetroSniffer) Sniff() error {
 			inactive, err := pcap.NewInactiveHandle(d.Iface)
 			if err != nil {
 				log.Errorf("Unable to create inactive handle for %q", d.Iface)
-				d.reporter.Stop()
 				d.die(err)
 				return err
 			}
@@ -334,7 +391,6 @@ func (d *MetroSniffer) Sniff() error {
 			handle, err := inactive.Activate()
 			if err != nil {
 				log.Errorf("Unable to activate %q", d.Iface)
-				d.reporter.Stop()
 				d.die(err)
 				return err
 			}
@@ -343,7 +399,6 @@ func (d *MetroSniffer) Sniff() error {
 			handle, err := pcap.OpenOffline(d.config.Pcap)
 			if err != nil {
 				log.Errorf("Unable to open pcap file %q", d.config.Pcap)
-				d.reporter.Stop()
 				d.die(err)
 				return err
 			}
@@ -354,7 +409,7 @@ func (d *MetroSniffer) Sniff() error {
 	ifaces, err := pcap.FindAllDevs()
 	if err != nil {
 		log.Criticalf("Error getting interface details: %s", err)
-		panic(Exit{1})
+		panic(err)
 	}
 
 	ifaceFound := false
@@ -367,8 +422,9 @@ func (d *MetroSniffer) Sniff() error {
 	}
 
 	if !ifaceFound && d.Iface != fileInterface {
-		log.Criticalf("Could not find interface details for: %s", d.Iface)
-		panic(Exit{1})
+		err = fmt.Errorf("Could not find interface details for: %s", d.Iface)
+		log.Criticalf("%v", err)
+		panic(err)
 	}
 
 	// we need to identify if we're the source/destination
@@ -426,7 +482,6 @@ func (d *MetroSniffer) Sniff() error {
 	if localWhitelist {
 		err := errors.New("Whitelist cannot contain just local addresses! Bailing out")
 		log.Errorf("%v : %v", err, hosts)
-		d.reporter.Stop()
 		d.die(err)
 		return err
 	}
@@ -444,7 +499,7 @@ func (d *MetroSniffer) Sniff() error {
 	log.Infof("Setting BPF filter: %s", d.Filter)
 	if err := d.pcapHandle.SetBPFFilter(d.Filter); err != nil {
 		log.Criticalf("error setting BPF filter: %s", err)
-		panic(Exit{1})
+		panic(err)
 	}
 
 	log.Infof("reading in packets")
@@ -464,7 +519,13 @@ func (d *MetroSniffer) Sniff() error {
 			}
 		}
 	}
+	return nil
+}
 
-	//Shutdown reporter thread
-	return d.reporter.Stop()
+func (d *MetroSniffer) Name() string {
+	return processorName
+}
+
+func Factory(p string) (metro.Processor, error) {
+	return NewSnifferFromYAML(p)
 }

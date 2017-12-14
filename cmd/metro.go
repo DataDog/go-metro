@@ -16,14 +16,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/DataDog/go-metro"
+	"github.com/DataDog/go-metro/processors/tcp"
+	"github.com/DataDog/go-metro/reporters"
 	log "github.com/cihub/seelog"
-	"github.com/google/gopacket/pcap"
 )
 
 const (
 	defaultConfigFile = "/etc/dd-agent/checks.d/go-metro.yaml"
 	defaultLogFile    = "/var/log/datadog/go-metro.log"
-	defaultBPFFilter  = "tcp"
 	baseFileLogConfig = `<seelog minlevel="ddloglevel">
 	<outputs formatid="common">
 		<rollingfile type="size" filename="ddlogfile" maxsize="100000" maxrolls="5" />
@@ -44,30 +45,11 @@ const (
 
 var cfg = flag.String("cfg", defaultConfigFile, "YAML configuration file.")
 var logfile = flag.String("log", defaultLogFile, "Destination log file.")
-var filter = flag.String("f", defaultBPFFilter, "BPF filter for pcap")
 var soften = flag.Bool("st", true, "Soften RTTM")
 
-type arrayFlags []string
-
-func (i *arrayFlags) String() string {
-	return "my string representation"
-}
-
-func (i *arrayFlags) Set(value string) error {
-	*i = append(*i, value)
-	return nil
-}
-
-type Exit struct{ Code int }
-
-// exit code handler
-func handleExit() {
-	if e := recover(); e != nil {
-		if exit, ok := e.(Exit); ok == true {
-			os.Exit(exit.Code)
-		}
-		panic(e) // not an Exit, bubble up
-	}
+func init() {
+	metro.RegisterProcessorFactory("tcp", tcp.Factory)
+	metro.RegisterReporterFactory("statsd", reporters.StatsdClientFactory)
 }
 
 func initLogging(to_file bool, level string) log.LoggerInterface {
@@ -105,7 +87,7 @@ func initLogging(to_file bool, level string) log.LoggerInterface {
 	logger, err := log.LoggerFromConfigAsBytes(logConfig)
 	if err != nil {
 		log.Criticalf("Unable to initiate logger: %s", err)
-		panic(Exit{1})
+		panic(err)
 	}
 	log.ReplaceLogger(logger)
 	return logger
@@ -113,7 +95,6 @@ func initLogging(to_file bool, level string) log.LoggerInterface {
 }
 
 func main() {
-	defer handleExit()
 	defer log.Flush()
 	flag.Parse()
 
@@ -126,21 +107,21 @@ func main() {
 	if err != nil {
 		//hack so that supervisord doesnt consider it "too quick" an exit.
 		time.Sleep(time.Second * 5)
-		panic(Exit{0})
+		os.Exit(1)
 	}
 
-	var cfg MetroConfig
+	var cfg metro.Config
 	err = cfg.Parse(yamlFile)
 	if err != nil {
 		log.Criticalf("Error parsing configuration file: %s ", err)
-		panic(Exit{1})
+		os.Exit(1)
 	}
 
 	//set logging
-	if cfg.InitConf.LogToFile {
-		logger = initLogging(true, cfg.InitConf.LogLevel)
+	if cfg.LogToFile {
+		logger = initLogging(true, cfg.LogLevel)
 	} else {
-		logger = initLogging(false, cfg.InitConf.LogLevel)
+		logger = initLogging(false, cfg.LogLevel)
 	}
 	defer logger.Close()
 
@@ -183,44 +164,69 @@ func main() {
 		}
 	}()
 
-	ifaces, err := pcap.FindAllDevs()
-	if err != nil {
-		log.Criticalf("Error getting interface details: %s", err)
-		panic(Exit{1})
+	// instantiate reporters
+	for _, reporterCfg := range cfg.ReportModules {
+		factory, ok := metro.ReporterFactories[reporterCfg.Name]
+		if !ok {
+			log.Warnf("Reporter factory unavailable, continue...")
+			continue
+		}
+		r, err := factory(reporterCfg.ModuleConfig)
+		if err != nil {
+			log.Warnf("Issue instantiating reporter: %v", err)
+			continue
+		}
+		if _, ok := metro.Reporters[r.Name()]; ok {
+			log.Warnf("Reporter already instantiated: %v", r.Name())
+			continue
+		}
+		metro.Reporters[r.Name()] = r
 	}
 
-	sniffers := make([]*MetroSniffer, 0)
-	for i := range cfg.Configs {
-		if len(cfg.Configs[i].Ips) == 0 && len(cfg.Configs[i].Hosts) == 0 {
-			log.Errorf("Whitelists must be enabled for go-metro to run (you may whitelist by IP or hostname in config file).")
-			panic(Exit{1})
+	// instantiate processors
+	for _, processorCfg := range cfg.ProcessModules {
+		factory, ok := metro.ProcessorFactories[processorCfg.Name]
+		if !ok {
+			log.Warnf("Processor factory unavailable, continue...")
+			continue
 		}
-		for j := range ifaces {
-			if ifaces[j].Name == cfg.Configs[i].Interface {
-				log.Infof("Will attempt sniffing off interface %q", cfg.Configs[i].Interface)
-				metrosniffer, err := NewMetroSniffer(cfg.InitConf, cfg.Configs[i], *filter)
-				if err == nil {
-					sniffers = append(sniffers, metrosniffer)
-					metrosniffer.Start()
-				} else {
-					log.Errorf("Unable to instantiate sniffer for interface %q", cfg.Configs[i].Interface)
-				}
-			}
+		p, err := factory(processorCfg.ModuleConfig)
+		if err != nil {
+			log.Warnf("Issue instantiating reporter: %v", err)
+			continue
+		}
+
+		if _, ok := metro.Processors[p.Name()]; ok {
+			log.Warnf("Processor already instantiated: %v", p.Name())
+			continue
+		}
+		metro.Processors[p.Name()] = p
+	}
+
+	if len(metro.Processors) == 0 {
+		log.Criticalf("No network processors could be configured, baling out (please check your configuration and privileges).")
+		os.Exit(1)
+	}
+
+	// Register Reporters with Processors
+	for _, reporter := range metro.Reporters {
+		for _, processor := range metro.Processors {
+			processor.RegisterReporter(reporter.Name(), reporter)
 		}
 	}
 
-	if len(sniffers) == 0 {
-		log.Criticalf("No sniffers available, baling out (please check your configuration and privileges).")
-		panic(Exit{1})
+	// Start all processors
+	for _, processor := range metro.Processors {
+		processor.Start()
 	}
 
 	//Check all sniffers are up and running or quit.
-	log.Debug("Waiting for sniffers to start...")
+	log.Debug("Waiting for processors to settle...")
 	time.Sleep(time.Second)
-	for i := range sniffers {
-		running := sniffers[i].Running()
+	for _, processor := range metro.Processors {
+		running := processor.Running()
 		if !running {
-			log.Criticalf("Unable to start sniffer for interface: %q (please check your configuration and privileges).", sniffers[i].Iface)
+			log.Criticalf("Processor failed to start - quitting...")
 			os.Exit(1)
 		}
 	}
@@ -238,11 +244,10 @@ func main() {
 	}
 
 	//Stop the show
-	for i := range sniffers {
-		err := sniffers[i].Stop()
+	for _, processor := range metro.Processors {
+		err := processor.Stop()
 		if err != nil {
-			log.Infof("Error shutting down %s sniffer: %v.", sniffers[i].Iface, err)
+			log.Infof("Error shutting down %s sniffer: %v.", processor, err)
 		}
 	}
-
 }

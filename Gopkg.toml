@@ -1,0 +1,15 @@
+[[constraint]]
+  name = "github.com/DataDog/agent-payload"
+  version = "=4.6.0"
+
+[[constraint]]
+  name = "github.com/DataDog/gohai"
+
+[[constraint]]  
+  name = "github.com/google/gopacket"
+
+[[constraint]]  
+  name = "github.com/cihub/seelog"
+
+[[constraint]]  
+  name = "github.com/DataDog/datadog-go"
