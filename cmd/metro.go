@@ -189,7 +189,7 @@ func main() {
 	for _, ingestorCfg := range cfg.IngestionModules {
 		factory, ok := metro.IngestorFactories[ingestorCfg.Name]
 		if !ok {
-			log.Warnf("Processor factory unavailable, continue...")
+			log.Warnf("Ingestor factory (%s) unavailable, continue...", ingestorCfg.Name)
 			continue
 		}
 		i, err := factory(ingestorCfg.ModuleConfig)
@@ -233,6 +233,7 @@ func main() {
 	// Register Processors with Ingestors
 	for _, processor := range metro.Processors {
 		for _, ingestor := range metro.Ingestors {
+			log.Infof("Registering processor %s with %s", processor.Name(), ingestor.Name())
 			ingestor.RegisterProcessor(processor.Name(), processor)
 		}
 	}
@@ -282,6 +283,13 @@ func main() {
 		err := processor.Stop()
 		if err != nil {
 			log.Infof("Error shutting down %s sniffer: %v.", processor, err)
+		}
+	}
+
+	for _, ingestor := range metro.Ingestors {
+		err := ingestor.Stop()
+		if err != nil {
+			log.Infof("Error shutting down %s sniffer: %v.", ingestor, err)
 		}
 	}
 }

@@ -110,6 +110,7 @@ func NewPcapSniffer(cfg PcapConfig) (*PcapSniffer, error) {
 }
 
 func (d *PcapSniffer) Start() error {
+	log.Infof("Starting PCAP ingestor...")
 	d.t.Go(d.Sniff)
 
 	return nil
