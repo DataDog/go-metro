@@ -1,4 +1,4 @@
-package tcp
+
 
 import (
 	"bytes"
@@ -328,27 +328,26 @@ func (d *MetroSniffer) Work() {
 		// Keep this in mind as a viable optimization for the future:
 		//   - packet retrieval using  ZeroCopyReadPacketData.
 		data, ci, err := d.DequeuePacket()
-		if err != nil {
-			continue
-		}
-
-		if d.config.Sample {
-			ts := ci.Timestamp.UnixNano()
-			if ts < d.sampleTS {
-				//don't sleep to empty pcap buffer
-			} else if ts > d.sampleDeadline {
-				log.Debugf("Updating next sample period: %v", time.Unix(0, ts))
-				d.sampleTS = d.sampleDeadline + (int64(d.config.SampleInterval) * time.Second.Nanoseconds())
-				d.sampleDeadline = d.sampleTS + (int64(d.config.SampleDuration) * time.Second.Nanoseconds())
+		if err == nil {
+			if d.config.Sample {
+				ts := ci.Timestamp.UnixNano()
+				if ts < d.sampleTS {
+					//don't sleep to empty pcap buffer
+				} else if ts > d.sampleDeadline {
+					log.Debugf("Updating next sample period: %v", time.Unix(0, ts))
+					d.sampleTS = d.sampleDeadline + (int64(d.config.SampleInterval) * time.Second.Nanoseconds())
+					d.sampleDeadline = d.sampleTS + (int64(d.config.SampleDuration) * time.Second.Nanoseconds())
+				} else {
+					if err == nil {
+						d.handlePacket(data, ci)
+					}
+				}
 			} else {
 				if err == nil {
 					d.handlePacket(data, ci)
 				}
 			}
-		} else {
-			if err == nil {
-				d.handlePacket(data, ci)
-			}
+
 		}
 
 		select {
