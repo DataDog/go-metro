@@ -48,7 +48,7 @@ var logfile = flag.String("log", defaultLogFile, "Destination log file.")
 var soften = flag.Bool("st", true, "Soften RTTM")
 
 func init() {
-	metro.RegisterProcessorFactory("tcp", tcp.Factory)
+	metro.RegisterProcessorFactory("tcp-rtt", tcp.Factory)
 	metro.RegisterReporterFactory("statsd", reporters.StatsdClientFactory)
 }
 

@@ -19,8 +19,8 @@ const (
 )
 
 type StatsdConfig struct {
-	ip   string `yaml:"ip"`
-	port int32  `yaml:"port"`
+	IP   string `yaml:"ip"`
+	Port int32  `yaml:"port"`
 }
 
 type StatsdClient struct {
@@ -44,7 +44,6 @@ func NewStatsdClientFromYAML(path string) (*StatsdClient, error) {
 	if err != nil {
 		return nil, errors.New("configuration file not found")
 	}
-
 	var cfg StatsdConfig
 	err = cfg.Parse(yamlFile)
 	if err != nil {
@@ -52,9 +51,8 @@ func NewStatsdClientFromYAML(path string) (*StatsdClient, error) {
 		return nil, err
 	}
 
-	ip := net.ParseIP(cfg.ip)
-
-	return NewStatsdClient(ip, cfg.port)
+	ip := net.ParseIP(cfg.IP)
+	return NewStatsdClient(ip, cfg.Port)
 }
 
 func NewStatsdClient(ip net.IP, port int32) (*StatsdClient, error) {
