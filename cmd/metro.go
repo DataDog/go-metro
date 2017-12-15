@@ -18,6 +18,7 @@ import (
 
 	"github.com/DataDog/go-metro"
 	"github.com/DataDog/go-metro/ingestion"
+	"github.com/DataDog/go-metro/processors/dns"
 	"github.com/DataDog/go-metro/processors/tcp"
 	"github.com/DataDog/go-metro/reporters"
 	log "github.com/cihub/seelog"
@@ -50,6 +51,7 @@ var soften = flag.Bool("st", true, "Soften RTTM")
 
 func init() {
 	metro.RegisterProcessorFactory("tcp-rtt", tcp.Factory)
+	metro.RegisterProcessorFactory("dns", dns.Factory)
 	metro.RegisterReporterFactory("statsd", reporters.StatsdClientFactory)
 	metro.RegisterIngestorFactory("pcap", ingestion.PcapSnifferFactory)
 }

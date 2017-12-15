@@ -23,7 +23,7 @@ const (
 )
 
 var (
-	CompatibleProcessors = []string{"tcp-rtt"}
+	CompatibleProcessors = []string{"tcp-rtt", "dns"}
 )
 
 type PcapConfig struct {
