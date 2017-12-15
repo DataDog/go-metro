@@ -32,6 +32,7 @@ func (d *MetroDNSProcessor) Report() error {
 					}
 				}
 			}
+			d.responses.Flush()
 			d.responses.Unlock()
 
 			d.requests.Lock()
