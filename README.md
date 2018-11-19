@@ -29,3 +29,7 @@ And you're good to go, no need to be *super* anymore!
 
 Note: Please note that you will need your filesystem to have extended security attributes enabled to allow setting _capabilities_ on files. This will normally involve having your kernel built with a configuration enabling `CONFIG_EXT3_FS_SECURITY`, `CONFIG_EXT4_FS_SECURITY`, `CONFIG_REISERFS_FS_SECUIRTY`, etc and `CONFIG_EXT3_FS_XATTR`, `CONFIG_EXT4_FS_XATTR`, `CONFIG_REISERFS_FS_XATTR`, etc - depending on your filesystem. The good news is that Ubuntu/Fedora/Mint kernels are typically
 built with these features enabled straight out of the box. Also, you might have to ensure the partition is mounted to enable support xattr.
+
+#### Agent 5.x >= 5.27.0
+Plase note that if you are running the bundled go-metro with datadog agent 5.x w/ version >= 5.27.0, the file provided
+in `/opt/datadog-agent/bin/go-metro` is actually a wrapper script. The binary is actually found in `/opt/datadog-agent/bin/go-metro.bin` and so you should make sure you run the `setcap` commands provided above on *that* binary and not the wrapper script. 
