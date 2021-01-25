@@ -15,7 +15,7 @@ communication we use the TS and TSecr values in the TCP Options, if available, t
 ```bash
 cd $GOPATH
 go get -a -v github.com/DataDog/go-metro
-go install github.com/Datadog/go-metro
+go install github.com/DataDog/go-metro
 ```
 * You should now have the executable in `$GOPATH/bin`.
 * Have fun!
