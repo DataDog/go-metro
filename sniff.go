@@ -38,6 +38,11 @@ func NewMetroDecoder() *MetroDecoder {
 		&d.eth, &d.dot1q, &d.ip4, &d.ip6,
 		&d.ip6extensions, &d.tcp, &d.payload)
 
+	// This flag ensures that we don't keep digging down into packet layers
+	// we do not care about (e.g. TLS) since we only want to know the high-level
+	// TCP metrics.
+	d.parser.IgnoreUnsupported = true
+
 	return d
 }
 
